@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "OneToOneMessenger.Client (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "OneToOneMessenger.Client (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

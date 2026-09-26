@@ -1,0 +1,11 @@
+C:\Users\jcy03\dev\OneToOneMessenger\src\Shared\bin\Debug\net10.0\Shared.deps.json
+C:\Users\jcy03\dev\OneToOneMessenger\src\Shared\bin\Debug\net10.0\Shared.dll
+C:\Users\jcy03\dev\OneToOneMessenger\src\Shared\bin\Debug\net10.0\Shared.pdb
+C:\Users\jcy03\dev\OneToOneMessenger\src\Shared\obj\Debug\net10.0\Shared.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\jcy03\dev\OneToOneMessenger\src\Shared\obj\Debug\net10.0\Shared.AssemblyInfoInputs.cache
+C:\Users\jcy03\dev\OneToOneMessenger\src\Shared\obj\Debug\net10.0\Shared.AssemblyInfo.cs
+C:\Users\jcy03\dev\OneToOneMessenger\src\Shared\obj\Debug\net10.0\Shared.csproj.CoreCompileInputs.cache
+C:\Users\jcy03\dev\OneToOneMessenger\src\Shared\obj\Debug\net10.0\Shared.dll
+C:\Users\jcy03\dev\OneToOneMessenger\src\Shared\obj\Debug\net10.0\refint\Shared.dll
+C:\Users\jcy03\dev\OneToOneMessenger\src\Shared\obj\Debug\net10.0\Shared.pdb
+C:\Users\jcy03\dev\OneToOneMessenger\src\Shared\obj\Debug\net10.0\ref\Shared.dll

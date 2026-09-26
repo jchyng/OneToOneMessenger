@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Shared/Shared.csproj" />
+  </Folder>
+  <Folder Name="/src/Client/">
+    <Project Path="src/Client/OneToOneMessenger.Client.csproj" />
+  </Folder>
+  <Folder Name="/src/Server/">
+    <Project Path="src/Server/MessengerServer.csproj" />
+  </Folder>
+  <Folder Name="/src/Server.Tests/">
+    <Project Path="src/Server.Tests/Server.Tests.csproj" />
+  </Folder>
+</Solution>
