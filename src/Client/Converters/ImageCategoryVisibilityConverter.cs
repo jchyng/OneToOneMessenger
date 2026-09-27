@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
+using Shared;
 
 namespace OneToOneMessenger_Client.Converters;
 
@@ -7,7 +8,14 @@ public sealed class ImageCategoryVisibilityConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language)
     {
-        return value is string category && category.Equals("image", StringComparison.OrdinalIgnoreCase)
+        var category = value switch
+        {
+            FileDto file => file.Category,
+            string text => text,
+            _ => null
+        };
+
+        return category?.Equals("image", StringComparison.OrdinalIgnoreCase) == true
             ? Visibility.Visible
             : Visibility.Collapsed;
     }

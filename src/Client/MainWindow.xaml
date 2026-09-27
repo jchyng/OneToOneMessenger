@@ -7,11 +7,11 @@
     xmlns:tb="using:H.NotifyIcon"
     xmlns:local="using:OneToOneMessenger_Client"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    Title="OneToOneMessenger.Client"
+    Title="OneToOne 메신저"
     mc:Ignorable="d">
-    <Window.SystemBackdrop>
+    <!-- <Window.SystemBackdrop>
         <MicaBackdrop />
-    </Window.SystemBackdrop>
+    </Window.SystemBackdrop> -->
 
     <Grid>
         <Grid.Resources>
@@ -26,9 +26,9 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <TitleBar x:Name="AppTitleBar" Title="OneToOneMessenger.Client">
+        <TitleBar x:Name="AppTitleBar" Title="OneToOne" Subtitle="Messenger">
             <TitleBar.IconSource>
-                <ImageIconSource ImageSource="Assets/AppIcon.ico" />
+                <FontIconSource Glyph="&#xE8BD;" FontFamily="Segoe Fluent Icons" Foreground="#3D7EFF" />
             </TitleBar.IconSource>
         </TitleBar>
 

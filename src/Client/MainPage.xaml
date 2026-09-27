@@ -7,219 +7,570 @@
     xmlns:converters="using:OneToOneMessenger_Client.Converters"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    IsTabStop="True">
+    IsTabStop="True"
+    Background="{StaticResource BrushSurface}"
+    KeyDown="MainPage_KeyDown"
+    SizeChanged="MainPage_SizeChanged">
 
     <Page.Resources>
         <converters:ChatMessageAlignmentConverter x:Key="ChatMessageAlignmentConverter" />
         <converters:ChatMessageBrushConverter x:Key="ChatMessageBrushConverter" />
+        <converters:ChatBubbleCornerRadiusConverter x:Key="ChatBubbleCornerRadiusConverter" />
         <converters:KoreanTimeConverter x:Key="KoreanTimeConverter" />
         <converters:ReadStateConverter x:Key="ReadStateConverter" />
         <converters:FilePreviewUriConverter x:Key="FilePreviewUriConverter" />
         <converters:ImageCategoryVisibilityConverter x:Key="ImageCategoryVisibilityConverter" />
         <converters:FileCategoryVisibilityConverter x:Key="FileCategoryVisibilityConverter" />
         <converters:TextVisibilityConverter x:Key="TextVisibilityConverter" />
+        <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <converters:FileSizeConverter x:Key="FileSizeConverter" />
+        <converters:FileCategoryLabelConverter x:Key="FileCategoryLabelConverter" />
+        <converters:FileCategoryGlyphConverter x:Key="FileCategoryGlyphConverter" />
+        <converters:FriendlyDateConverter x:Key="FriendlyDateConverter" />
+        <converters:SearchPreviewConverter x:Key="SearchPreviewConverter" />
     </Page.Resources>
+
     <Page.KeyboardAccelerators>
         <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="SearchKeyboardAccelerator_Invoked" />
     </Page.KeyboardAccelerators>
 
-    <Grid Background="#F7F8FA" Padding="20">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="380" />
-        </Grid.ColumnDefinitions>
+    <SplitView x:Name="VaultSplitView"
+               IsPaneOpen="True"
+               DisplayMode="Inline"
+               PanePlacement="Right"
+               CompactPaneLength="0"
+               OpenPaneLength="380"
+               Background="{StaticResource BrushSurface}">
+        <SplitView.Pane>
+            <Grid Background="{StaticResource BrushSurfaceAlt}"
+                  BorderBrush="{StaticResource BrushStroke}"
+                  BorderThickness="1,0,0,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="76" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-        <Grid Grid.Column="0" Background="White" CornerRadius="12"
-              AllowDrop="True" DragOver="ChatArea_DragOver" Drop="ChatArea_Drop">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="72" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="72" />
-            </Grid.RowDefinitions>
-
-            <Grid Padding="20,12" BorderBrush="#E6EAF0" BorderThickness="0,0,0,1">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock x:Name="PresenceDot" Text="●" FontSize="12" Foreground="#8A94A6" VerticalAlignment="Center" />
-                        <TextBlock Text="짱구" FontSize="18" FontWeight="SemiBold" Foreground="#171C26" />
+                <!-- Vault header -->
+                <Grid Padding="18,0,12,0" BorderBrush="{StaticResource BrushStroke}" BorderThickness="0,0,0,1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="38" Height="38" CornerRadius="10" Background="{StaticResource BrushAccentSoft}" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE8B7;" FontSize="17" Foreground="{StaticResource BrushAccent}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Spacing="1">
+                        <TextBlock Text="보관함" FontSize="{StaticResource FontSizeSubtitle}" FontWeight="{StaticResource WeightSemiBold}" Foreground="{StaticResource BrushTextStrong}" />
+                        <TextBlock x:Name="VaultSummaryText" Text="파일을 불러오는 중" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
                     </StackPanel>
-                    <TextBlock x:Name="PresenceText" Text="연결 중…" FontSize="12" Foreground="#8A94A6" />
-                </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                    <Button Content="검색" Click="SearchButton_Click" />
-                    <Button Content="설정" Click="SettingsButton_Click" />
-                </StackPanel>
-            </Grid>
+                    <Button Grid.Column="2" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE711;"
+                            Click="CloseVaultButton_Click" ToolTipService.ToolTip="보관함 닫기"
+                            AutomationProperties.Name="보관함 닫기" />
+                </Grid>
 
-            <Grid Grid.Row="1">
-                <ListView x:Name="MessagesList" Padding="20" SelectionMode="None"
-                          Background="Transparent" BorderThickness="0">
-                <ListView.ItemContainerStyle>
-                    <Style TargetType="ListViewItem">
-                        <Setter Property="Padding" Value="0" />
-                        <Setter Property="Margin" Value="0,4" />
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                        <Setter Property="VerticalContentAlignment" Value="Top" />
-                        <Setter Property="Background" Value="Transparent" />
-                    </Style>
-                </ListView.ItemContainerStyle>
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <StackPanel Margin="0,2" VerticalAlignment="Top"
-                                    HorizontalAlignment="{Binding Sender, Converter={StaticResource ChatMessageAlignmentConverter}}">
-                            <TextBlock Text="{Binding Sender}" FontSize="11" Foreground="#8A94A6" />
-                            <Border Background="{Binding Sender, Converter={StaticResource ChatMessageBrushConverter}}"
-                                    CornerRadius="14" Padding="14,10" MaxWidth="520"
-                                    VerticalAlignment="Top">
-                                <StackPanel Spacing="6" VerticalAlignment="Top">
-                                    <TextBlock Text="{Binding Body}"
-                                               Visibility="{Binding Body, Converter={StaticResource TextVisibilityConverter}}"
-                                               TextWrapping="Wrap" FontSize="14" Foreground="#24303F" />
-                                    <Grid Visibility="{Binding File.Category, Converter={StaticResource ImageCategoryVisibilityConverter}}">
-                                        <Image Source="{Binding File.Id, Converter={StaticResource FilePreviewUriConverter}}"
-                                               MaxWidth="360" MaxHeight="220" Stretch="Uniform"
-                                               ImageFailed="PreviewImage_Failed"
-                                               Tapped="PreviewImage_Tapped" Tag="{Binding File.Id}" />
-                                        <TextBlock Text="이미지 미리보기를 불러오지 못했습니다."
-                                                   Visibility="Collapsed"
-                                                   FontSize="12" Foreground="#738098"
-                                                   VerticalAlignment="Center" />
-                                    </Grid>
-                                    <Grid ColumnSpacing="8"
-                                          Visibility="{Binding File.Category, Converter={StaticResource FileCategoryVisibilityConverter}}">
+                <!-- Search and sorting -->
+                <Grid Grid.Row="1" Margin="16,14,16,10" ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="108" />
+                    </Grid.ColumnDefinitions>
+                    <Grid>
+                        <TextBox x:Name="VaultSearchInput"
+                                 Style="{StaticResource SearchTextBoxStyle}"
+                                 PlaceholderText="파일명 검색"
+                                 TextChanged="VaultSearchInput_TextChanged"
+                                 KeyDown="VaultSearchInput_KeyDown"
+                                 AutomationProperties.Name="보관함 파일명 검색" />
+                        <FontIcon Glyph="&#xE721;" FontSize="14" Foreground="{StaticResource BrushTextMeta}"
+                                  Margin="14,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsHitTestVisible="False" />
+                    </Grid>
+                    <ComboBox x:Name="VaultSortComboBox" Grid.Column="1" SelectedIndex="0"
+                              SelectionChanged="VaultSort_Changed" HorizontalAlignment="Stretch"
+                              FontSize="{StaticResource FontSizeCaption}" AutomationProperties.Name="파일 정렬">
+                        <ComboBoxItem Content="최신순" Tag="newest" />
+                        <ComboBoxItem Content="오래된순" Tag="oldest" />
+                        <ComboBoxItem Content="이름순" Tag="name" />
+                    </ComboBox>
+                </Grid>
+
+                <!-- Category chips -->
+                <ScrollViewer Grid.Row="2" HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Hidden"
+                              VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="16,0,16,12">
+                        <ToggleButton x:Name="AllVaultCategoryButton" Style="{StaticResource FilterChipStyle}" Content="전체" Tag="" Click="VaultCategory_Click" IsChecked="True" />
+                        <ToggleButton x:Name="ImageVaultCategoryButton" Style="{StaticResource FilterChipStyle}" Content="이미지" Tag="image" Click="VaultCategory_Click" />
+                        <ToggleButton x:Name="VideoVaultCategoryButton" Style="{StaticResource FilterChipStyle}" Content="영상" Tag="video" Click="VaultCategory_Click" />
+                        <ToggleButton x:Name="DocumentVaultCategoryButton" Style="{StaticResource FilterChipStyle}" Content="문서" Tag="doc" Click="VaultCategory_Click" />
+                        <ToggleButton x:Name="OtherVaultCategoryButton" Style="{StaticResource FilterChipStyle}" Content="기타" Tag="etc" Click="VaultCategory_Click" />
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- Type summary -->
+                <StackPanel Grid.Row="3" Margin="16,0,16,12" Spacing="8">
+                    <TextBlock Text="파일 유형" FontSize="{StaticResource FontSizeCaption}" FontWeight="{StaticResource WeightSemiBold}" Foreground="{StaticResource BrushTextStrong}" />
+                    <Grid ColumnSpacing="8" RowSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="58" />
+                            <RowDefinition Height="58" />
+                        </Grid.RowDefinitions>
+                        <Button Tag="image" Click="VaultSummaryCategory_Click" Padding="10,7" HorizontalContentAlignment="Stretch"
+                                Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushStroke}" BorderThickness="1" CornerRadius="10">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Border Width="30" Height="30" CornerRadius="8" Background="#E9F5FF">
+                                    <FontIcon Glyph="&#xEB9F;" FontSize="14" Foreground="#288AD6" />
+                                </Border>
+                                <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="이미지" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                    <TextBlock x:Name="ImageSummaryCountText" Text="0개" FontSize="{StaticResource FontSizeCaption}" FontWeight="{StaticResource WeightSemiBold}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                        <Button Grid.Column="1" Tag="doc" Click="VaultSummaryCategory_Click" Padding="10,7" HorizontalContentAlignment="Stretch"
+                                Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushStroke}" BorderThickness="1" CornerRadius="10">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Border Width="30" Height="30" CornerRadius="8" Background="#EEF0FF">
+                                    <FontIcon Glyph="&#xE8A5;" FontSize="14" Foreground="#635BDA" />
+                                </Border>
+                                <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="문서" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                    <TextBlock x:Name="DocumentSummaryCountText" Text="0개" FontSize="{StaticResource FontSizeCaption}" FontWeight="{StaticResource WeightSemiBold}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                        <Button Grid.Row="1" Tag="video" Click="VaultSummaryCategory_Click" Padding="10,7" HorizontalContentAlignment="Stretch"
+                                Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushStroke}" BorderThickness="1" CornerRadius="10">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Border Width="30" Height="30" CornerRadius="8" Background="#FCEEF4">
+                                    <FontIcon Glyph="&#xE714;" FontSize="14" Foreground="#C94D7C" />
+                                </Border>
+                                <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="영상" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                    <TextBlock x:Name="VideoSummaryCountText" Text="0개" FontSize="{StaticResource FontSizeCaption}" FontWeight="{StaticResource WeightSemiBold}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                        <Button Grid.Row="1" Grid.Column="1" Tag="etc" Click="VaultSummaryCategory_Click" Padding="10,7" HorizontalContentAlignment="Stretch"
+                                Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushStroke}" BorderThickness="1" CornerRadius="10">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Border Width="30" Height="30" CornerRadius="8" Background="#F0F1F3">
+                                    <FontIcon Glyph="&#xE7C3;" FontSize="14" Foreground="#697386" />
+                                </Border>
+                                <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="기타" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                    <TextBlock x:Name="OtherSummaryCountText" Text="0개" FontSize="{StaticResource FontSizeCaption}" FontWeight="{StaticResource WeightSemiBold}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                    </Grid>
+                </StackPanel>
+
+                <!-- Recent files -->
+                <Grid Grid.Row="4" Margin="16,0,8,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="RecentFilesTitle" Text="최근 파일" VerticalAlignment="Center"
+                               FontSize="{StaticResource FontSizeCaption}" FontWeight="{StaticResource WeightSemiBold}" Foreground="{StaticResource BrushTextStrong}" />
+                    <Button Grid.Column="1" Style="{StaticResource CompactIconButtonStyle}" Content="&#xE72C;"
+                            Click="RefreshVaultButton_Click" ToolTipService.ToolTip="새로 고침" AutomationProperties.Name="보관함 새로 고침" />
+                </Grid>
+
+                <Grid Grid.Row="5" Margin="8,0,8,8">
+                    <ListView x:Name="VaultList" SelectionMode="None"
+                              ItemContainerStyle="{StaticResource VaultListViewItemStyle}"
+                              Background="Transparent" BorderThickness="0">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnSpacing="8" ToolTipService.ToolTip="{Binding OriginalName}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="40" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Width="38" Height="38" CornerRadius="9" Background="{StaticResource BrushSurface}" BorderBrush="{StaticResource BrushStroke}" BorderThickness="1">
+                                        <FontIcon Glyph="{Binding Category, Converter={StaticResource FileCategoryGlyphConverter}}"
+                                                  FontSize="16" Foreground="{StaticResource BrushAccent}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock Text="{Binding OriginalName}" TextTrimming="CharacterEllipsis"
+                                                   FontSize="{StaticResource FontSizeCaption}" FontWeight="{StaticResource WeightSemiBold}"
+                                                   Foreground="{StaticResource BrushTextPrimary}" />
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="{Binding Category, Converter={StaticResource FileCategoryLabelConverter}}" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                            <TextBlock Text="·" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                            <TextBlock Text="{Binding SizeBytes, Converter={StaticResource FileSizeConverter}}" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                            <TextBlock Text="·" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                            <TextBlock Text="{Binding CreatedAt, Converter={StaticResource FriendlyDateConverter}}" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Style="{StaticResource CompactIconButtonStyle}" Content="&#xE896;" Tag="{Binding}"
+                                                Click="DownloadFile_Click" ToolTipService.ToolTip="다운로드" AutomationProperties.Name="파일 다운로드" />
+                                        <Button Style="{StaticResource CompactIconButtonStyle}" Content="&#xE74E;" Tag="{Binding}"
+                                                Click="SaveAsFile_Click" ToolTipService.ToolTip="다른 이름으로 저장" AutomationProperties.Name="다른 이름으로 저장" />
+                                        <Button Style="{StaticResource CompactIconButtonStyle}" Content="&#xE8F1;" Tag="{Binding}"
+                                                Click="OpenVaultMessage_Click" ToolTipService.ToolTip="채팅에서 보기" AutomationProperties.Name="채팅에서 보기" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <StackPanel x:Name="VaultEmptyState" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Spacing="8" Visibility="Collapsed" IsHitTestVisible="False">
+                        <Border Width="52" Height="52" CornerRadius="26" Background="{StaticResource BrushSurface}">
+                            <FontIcon Glyph="&#xE8B7;" FontSize="22" Foreground="{StaticResource BrushTextMeta}" />
+                        </Border>
+                        <TextBlock Text="파일이 없습니다" HorizontalAlignment="Center" FontWeight="{StaticResource WeightSemiBold}" Foreground="{StaticResource BrushTextPrimary}" />
+                        <TextBlock Text="주고받은 파일이 여기에 모입니다" HorizontalAlignment="Center" FontSize="{StaticResource FontSizeCaption}" Foreground="{StaticResource BrushTextMeta}" />
+                    </StackPanel>
+
+                    <ProgressRing x:Name="VaultLoadingRing" Width="28" Height="28" IsActive="False"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+                </Grid>
+            </Grid>
+        </SplitView.Pane>
+
+        <SplitView.Content>
+            <Grid x:Name="ChatSurface"
+                  Background="{StaticResource BrushSurface}"
+                  AllowDrop="True"
+                  DragEnter="ChatArea_DragEnter"
+                  DragLeave="ChatArea_DragLeave"
+                  DragOver="ChatArea_DragOver"
+                  Drop="ChatArea_Drop">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="76" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Conversation header -->
+                <Grid Padding="20,0,16,0" Background="{StaticResource BrushSurface}"
+                      BorderBrush="{StaticResource BrushStroke}" BorderThickness="0,0,0,1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid Width="44" Height="44" VerticalAlignment="Center">
+                        <Ellipse Fill="{StaticResource BrushAccentSoft}" />
+                        <TextBlock Text="짱" FontSize="15" FontWeight="{StaticResource WeightSemiBold}"
+                                   Foreground="{StaticResource BrushAccent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <Border Width="14" Height="14" CornerRadius="7" Padding="3" Background="{StaticResource BrushSurface}"
+                                HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                            <Ellipse x:Name="PresenceDot" Fill="{StaticResource BrushTextMeta}" />
+                        </Border>
+                    </Grid>
+                    <StackPanel Grid.Column="1" Margin="11,0,0,0" VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Text="짱구" FontSize="{StaticResource FontSizeSubtitle}" FontWeight="{StaticResource WeightSemiBold}" Foreground="{StaticResource BrushTextStrong}" />
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock x:Name="PresenceText" Text="연결 중…" FontSize="{StaticResource FontSizeCaption}" Foreground="{StaticResource BrushTextMeta}" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Button Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE721;" Click="SearchButton_Click"
+                                ToolTipService.ToolTip="대화 검색 (Ctrl+F)" AutomationProperties.Name="대화 검색" />
+                        <Button x:Name="VaultToggleButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE8B7;" Click="VaultToggleButton_Click"
+                                ToolTipService.ToolTip="보관함 열기 또는 닫기" AutomationProperties.Name="보관함" />
+                        <Button Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE712;" Click="SettingsButton_Click"
+                                ToolTipService.ToolTip="설정" AutomationProperties.Name="설정" />
+                    </StackPanel>
+                </Grid>
+
+                <Border x:Name="ConnectionBanner" Grid.Row="1" Background="#FFF4D8" Padding="18,7" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE7BA;" FontSize="13" Foreground="#9A6700" />
+                        <TextBlock x:Name="ConnectionBannerText" Text="연결이 끊겼습니다. 다시 연결하는 중…"
+                                   FontSize="{StaticResource FontSizeCaption}" Foreground="#7A5200" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Timeline -->
+                <Grid Grid.Row="2" Background="{StaticResource BrushChatCanvas}">
+                    <ListView x:Name="MessagesList"
+                              Padding="24,14,24,20"
+                              SelectionMode="None"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              ItemContainerStyle="{StaticResource MessageListViewItemStyle}"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsStackPanel ItemsUpdatingScrollMode="KeepLastItemInView" />
+                            </ItemsPanelTemplate>
+                        </ListView.ItemsPanel>
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel>
+                                    <!-- Date separator -->
+                                    <Grid Margin="4,18,4,16"
+                                          Visibility="{Binding ShowDateHeader, Converter={StaticResource BooleanToVisibilityConverter}}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Height="1" Background="{StaticResource BrushStroke}" VerticalAlignment="Center" />
+                                        <Border Grid.Column="1" Margin="12,0" Padding="10,4" CornerRadius="10" Background="{StaticResource BrushSurface}">
+                                            <TextBlock Text="{Binding DateHeader}" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                        </Border>
+                                        <Border Grid.Column="2" Height="1" Background="{StaticResource BrushStroke}" VerticalAlignment="Center" />
+                                    </Grid>
+
+                                    <!-- Message row -->
+                                    <Grid MaxWidth="570" Margin="{Binding GroupMargin}"
+                                          HorizontalAlignment="{Binding Message.Sender, Converter={StaticResource ChatMessageAlignmentConverter}}"
+                                          ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="32" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="{Binding File.OriginalName}" TextTrimming="CharacterEllipsis"
-                                                   VerticalAlignment="Center" />
-                                        <Button Grid.Column="1" Content="다운로드" Tag="{Binding File}"
-                                                Click="DownloadFile_Click" />
-                                        <Button Grid.Column="2" Content="다른 이름 저장" Tag="{Binding File}"
-                                                Click="SaveAsFile_Click" />
+
+                                        <Grid Width="32" Height="32" VerticalAlignment="Top"
+                                              Visibility="{Binding ShowAvatar, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <Ellipse Fill="{StaticResource BrushBubbleIn}" />
+                                            <TextBlock Text="짱" FontSize="11" FontWeight="{StaticResource WeightSemiBold}"
+                                                       Foreground="{StaticResource BrushTextPrimary}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Grid>
+
+                                        <StackPanel Grid.Column="1" MaxWidth="520" Spacing="4">
+                                            <TextBlock Text="{Binding Message.Sender}"
+                                                       Visibility="{Binding ShowSender, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                       FontSize="{StaticResource FontSizeMeta}" FontWeight="{StaticResource WeightSemiBold}"
+                                                       Foreground="{StaticResource BrushTextMeta}" Margin="2,0,0,1" />
+                                            <Border Background="{Binding Message.Sender, Converter={StaticResource ChatMessageBrushConverter}}"
+                                                    CornerRadius="{Binding Message.Sender, Converter={StaticResource ChatBubbleCornerRadiusConverter}}"
+                                                    Padding="12,9">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="{Binding Message.Body}"
+                                                               Visibility="{Binding Message.Body, Converter={StaticResource TextVisibilityConverter}}"
+                                                               TextWrapping="WrapWholeWords" FontSize="{StaticResource FontSizeBody}"
+                                                               Foreground="{StaticResource BrushTextPrimary}" MaxWidth="440" />
+
+                                                    <Border Visibility="{Binding Message.File, Converter={StaticResource ImageCategoryVisibilityConverter}}"
+                                                            CornerRadius="10" Background="{StaticResource BrushStroke}" MaxWidth="340">
+                                                        <Grid>
+                                                            <Image Source="{Binding Message.File.Id, Converter={StaticResource FilePreviewUriConverter}}"
+                                                                   MaxWidth="340" MaxHeight="230" Stretch="Uniform"
+                                                                   ImageFailed="PreviewImage_Failed" Tapped="PreviewImage_Tapped"
+                                                                   Tag="{Binding Message.File.Id}" ToolTipService.ToolTip="크게 보기" />
+                                                            <StackPanel Visibility="Collapsed" Padding="28" Spacing="6" HorizontalAlignment="Center">
+                                                                <FontIcon Glyph="&#xEB9F;" FontSize="24" Foreground="{StaticResource BrushTextMeta}" />
+                                                                <TextBlock Text="미리보기를 불러오지 못했습니다" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
+
+                                                    <Border Width="340" Padding="10" Background="{StaticResource BrushSurface}"
+                                                            BorderBrush="{StaticResource BrushStroke}" BorderThickness="1"
+                                                            CornerRadius="10"
+                                                            Visibility="{Binding Message.File, Converter={StaticResource FileCategoryVisibilityConverter}}">
+                                                        <Grid ColumnSpacing="9">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="40" />
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Border Width="40" Height="40" CornerRadius="10" Background="{StaticResource BrushAccentSoft}">
+                                                                <FontIcon Glyph="{Binding Message.File.Category, Converter={StaticResource FileCategoryGlyphConverter}}"
+                                                                          FontSize="17" Foreground="{StaticResource BrushAccent}" />
+                                                            </Border>
+                                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                                                <TextBlock Text="{Binding Message.File.OriginalName}" TextTrimming="CharacterEllipsis"
+                                                                           FontSize="{StaticResource FontSizeCaption}" FontWeight="{StaticResource WeightSemiBold}"
+                                                                           Foreground="{StaticResource BrushTextStrong}"
+                                                                           ToolTipService.ToolTip="{Binding Message.File.OriginalName}" />
+                                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                                    <TextBlock Text="{Binding Message.File.Category, Converter={StaticResource FileCategoryLabelConverter}}" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                                                    <TextBlock Text="·" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                                                    <TextBlock Text="{Binding Message.File.SizeBytes, Converter={StaticResource FileSizeConverter}}" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                                                </StackPanel>
+                                                            </StackPanel>
+                                                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                                                <Button Style="{StaticResource CompactIconButtonStyle}" Content="&#xE896;" Tag="{Binding Message.File}"
+                                                                        Click="DownloadFile_Click" ToolTipService.ToolTip="다운로드" AutomationProperties.Name="파일 다운로드" />
+                                                                <Button Style="{StaticResource CompactIconButtonStyle}" Content="&#xE74E;" Tag="{Binding Message.File}"
+                                                                        Click="SaveAsFile_Click" ToolTipService.ToolTip="다른 이름으로 저장" AutomationProperties.Name="다른 이름으로 저장" />
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <StackPanel Orientation="Horizontal" Spacing="5"
+                                                        HorizontalAlignment="{Binding Message.Sender, Converter={StaticResource ChatMessageAlignmentConverter}}">
+                                                <TextBlock Text="{Binding Message.SentAt, Converter={StaticResource KoreanTimeConverter}}"
+                                                           FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                                <TextBlock Text="{Binding Message.IsRead, Converter={StaticResource ReadStateConverter}}"
+                                                           Visibility="{Binding IsMine, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                           FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushAccent}" />
+                                            </StackPanel>
+                                        </StackPanel>
                                     </Grid>
                                 </StackPanel>
-                            </Border>
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
-                                <TextBlock Text="{Binding SentAt, Converter={StaticResource KoreanTimeConverter}}"
-                                           FontSize="10" Foreground="#98A1B2" />
-                                <TextBlock Text="{Binding IsRead, Converter={StaticResource ReadStateConverter}}"
-                                           FontSize="10" Foreground="#3D7EFF" />
-                            </StackPanel>
-                        </StackPanel>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-                </ListView>
-                <Border x:Name="SearchOverlay" Background="White" BorderBrush="#DDE3EC"
-                        BorderThickness="1" CornerRadius="10" Padding="12"
-                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="20"
-                        Width="420" Visibility="Collapsed">
-                    <StackPanel Spacing="8">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox x:Name="MessageSearchInput" PlaceholderText="대화 내용 검색…"
-                                     KeyDown="MessageSearchInput_KeyDown" />
-                            <Button Grid.Column="1" Content="닫기" Margin="8,0,0,0"
-                                    Click="CloseSearchButton_Click" />
-                        </Grid>
-                        <TextBlock x:Name="SearchStatusText" FontSize="11" Foreground="#8A94A6" />
-                        <ListView x:Name="SearchResultsList" MaxHeight="320"
-                                  IsItemClickEnabled="True" ItemClick="SearchResultsList_ItemClick"
-                                  SelectionMode="None">
-                            <ListView.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Spacing="2" Padding="4">
-                                        <TextBlock Text="{Binding Msg.Sender}" FontSize="11"
-                                                   Foreground="#8A94A6" />
-                                        <TextBlock Text="{Binding HighlightedPreview}" TextWrapping="Wrap"
-                                                   FontSize="13" />
-                                        <TextBlock Text="{Binding Msg.SentAt, Converter={StaticResource KoreanTimeConverter}}"
-                                                   FontSize="10" Foreground="#98A1B2" />
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <StackPanel x:Name="MessagesEmptyState" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Spacing="10" Visibility="Collapsed" IsHitTestVisible="False">
+                        <Border Width="64" Height="64" CornerRadius="32" Background="{StaticResource BrushAccentSoft}">
+                            <FontIcon Glyph="&#xE8BD;" FontSize="27" Foreground="{StaticResource BrushAccent}" />
+                        </Border>
+                        <TextBlock Text="대화를 시작해 보세요" HorizontalAlignment="Center" FontSize="{StaticResource FontSizeSubtitle}"
+                                   FontWeight="{StaticResource WeightSemiBold}" Foreground="{StaticResource BrushTextStrong}" />
+                        <TextBlock Text="짱구에게 첫 메시지나 파일을 보내세요" HorizontalAlignment="Center"
+                                   FontSize="{StaticResource FontSizeCaption}" Foreground="{StaticResource BrushTextMeta}" />
                     </StackPanel>
-                </Border>
-            </Grid>
 
-            <Grid Grid.Row="2" Padding="12" ColumnSpacing="8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="48" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="48" />
-                </Grid.ColumnDefinitions>
-                <Button Content="＋" Click="ChooseFile_Click" />
-                <TextBox x:Name="MessageInput" Grid.Column="1" PlaceholderText="메시지를 입력하세요…" KeyDown="MessageInput_KeyDown" />
-                <Button Grid.Column="2" Content="➤" Click="SendButton_Click" />
-                <ProgressBar x:Name="UploadProgress" Grid.Column="1" Grid.ColumnSpan="2" Height="3" VerticalAlignment="Bottom" Visibility="Collapsed" />
-                <Button x:Name="RetryButton" Grid.Column="0" Content="재시도" Visibility="Collapsed" Click="RetryButton_Click" />
-            </Grid>
-            <Border x:Name="ConnectionBanner" Grid.Row="0" Background="#FFF4D6"
-                    Padding="12,6" VerticalAlignment="Bottom" Visibility="Collapsed">
-                <TextBlock x:Name="ConnectionBannerText" Text="연결 끊김 — 재연결 중…"
-                           FontSize="12" Foreground="#8A5A00" />
-            </Border>
-        </Grid>
+                    <StackPanel x:Name="MessagesLoadingState" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                        <ProgressRing Width="32" Height="32" IsActive="True" />
+                        <TextBlock Text="대화를 불러오는 중…" FontSize="{StaticResource FontSizeCaption}" Foreground="{StaticResource BrushTextMeta}" />
+                    </StackPanel>
 
-        <Grid Grid.Column="1" Margin="12,0,0,0" Background="White" CornerRadius="12" Padding="16">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
-            <TextBlock Text="보관함" FontSize="18" FontWeight="SemiBold" Foreground="#171C26" />
-            <TextBox x:Name="VaultSearchInput" Grid.Row="1" Margin="0,16,0,12" PlaceholderText="파일명 검색…" KeyDown="VaultSearchInput_KeyDown" />
-            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6">
-                <Button Content="전체" Tag="" Click="VaultCategory_Click" />
-                <Button Content="이미지" Tag="image" Click="VaultCategory_Click" />
-                <Button Content="영상" Tag="video" Click="VaultCategory_Click" />
-                <Button Content="문서" Tag="doc" Click="VaultCategory_Click" />
-                <Button Content="기타" Tag="etc" Click="VaultCategory_Click" />
-            </StackPanel>
-            <Grid Grid.Row="3" Margin="0,12,0,8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="VaultSummaryText" VerticalAlignment="Center" FontSize="11" Foreground="#8A94A6" />
-                <ComboBox x:Name="VaultSortComboBox" Grid.Column="1" SelectedIndex="0" SelectionChanged="VaultSort_Changed">
-                    <ComboBoxItem Content="최신순" Tag="newest" />
-                    <ComboBoxItem Content="오래된순" Tag="oldest" />
-                    <ComboBoxItem Content="이름순" Tag="name" />
-                </ComboBox>
-            </Grid>
-            <ListView x:Name="VaultList" Grid.Row="4" SelectionMode="None">
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <Grid Margin="0,6">
+                    <InfoBar x:Name="OperationInfoBar" IsOpen="False" IsClosable="True"
+                             HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="16"
+                             MaxWidth="560" Severity="Informational" />
+
+                    <!-- Full conversation search view -->
+                    <Grid x:Name="SearchOverlay" Background="{StaticResource BrushSurface}" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Grid Padding="20,16,20,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <TextBlock Text="{Binding OriginalName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding Category}" FontSize="11" Foreground="#8A94A6" />
+                                <TextBlock Text="대화 검색" FontSize="{StaticResource FontSizeTitle}" FontWeight="{StaticResource WeightSemiBold}" Foreground="{StaticResource BrushTextStrong}" />
+                                <TextBlock Text="메시지 내용에서 검색합니다" FontSize="{StaticResource FontSizeCaption}" Foreground="{StaticResource BrushTextMeta}" />
                             </StackPanel>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="{Binding CreatedAt, Converter={StaticResource KoreanTimeConverter}}"
-                                           FontSize="10" Foreground="#98A1B2" VerticalAlignment="Center" />
-                                <Button Content="채팅에서 보기" Tag="{Binding}" Click="OpenVaultMessage_Click" />
-                            </StackPanel>
+                            <Button Grid.Column="1" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE711;"
+                                    Click="CloseSearchButton_Click" ToolTipService.ToolTip="검색 닫기 (Esc)" AutomationProperties.Name="검색 닫기" />
                         </Grid>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-        </Grid>
-    </Grid>
+                        <Grid Grid.Row="1" Margin="20,4,20,12">
+                            <TextBox x:Name="MessageSearchInput" Style="{StaticResource SearchTextBoxStyle}"
+                                     PlaceholderText="검색어를 입력하고 Enter를 누르세요"
+                                     KeyDown="MessageSearchInput_KeyDown" AutomationProperties.Name="대화 검색어" />
+                            <FontIcon Glyph="&#xE721;" FontSize="14" Foreground="{StaticResource BrushTextMeta}"
+                                      Margin="14,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsHitTestVisible="False" />
+                            <Button Style="{StaticResource CompactIconButtonStyle}" Content="&#xE721;" Click="MessageSearchButton_Click"
+                                    HorizontalAlignment="Right" Margin="0,0,6,0" ToolTipService.ToolTip="검색" AutomationProperties.Name="검색 실행" />
+                        </Grid>
+                        <Grid Grid.Row="2" Padding="20,0,20,16">
+                            <ListView x:Name="SearchResultsList" IsItemClickEnabled="True" ItemClick="SearchResultsList_ItemClick"
+                                      SelectionMode="None" ItemContainerStyle="{StaticResource ResultListViewItemStyle}"
+                                      Background="Transparent" BorderThickness="0">
+                                <ListView.Header>
+                                    <TextBlock x:Name="SearchStatusText" Margin="4,0,4,10" FontSize="{StaticResource FontSizeCaption}" Foreground="{StaticResource BrushTextMeta}" />
+                                </ListView.Header>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Padding="12,10" ColumnSpacing="10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="36" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="34" Height="34" CornerRadius="17" Background="{StaticResource BrushBubbleIn}">
+                                                <FontIcon Glyph="&#xE77B;" FontSize="14" Foreground="{StaticResource BrushTextMeta}" />
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Spacing="3">
+                                                <TextBlock Text="{Binding Msg.Sender}" FontSize="{StaticResource FontSizeMeta}" FontWeight="{StaticResource WeightSemiBold}" Foreground="{StaticResource BrushTextMeta}" />
+                                                <TextBlock Text="{Binding HighlightedPreview, Converter={StaticResource SearchPreviewConverter}}"
+                                                           TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                                                           FontSize="{StaticResource FontSizeBody}" Foreground="{StaticResource BrushTextPrimary}" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="{Binding Msg.SentAt, Converter={StaticResource KoreanTimeConverter}}"
+                                                       FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </Grid>
+                    </Grid>
+                </Grid>
+
+                <!-- Composer -->
+                <Border Grid.Row="3" Background="{StaticResource BrushSurface}"
+                        BorderBrush="{StaticResource BrushStroke}" BorderThickness="0,1,0,0" Padding="14,10,16,12">
+                    <Grid RowSpacing="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid x:Name="TransferStatusPanel" Visibility="Collapsed" Margin="52,0,52,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="3">
+                                <TextBlock x:Name="TransferStatusText" Text="파일을 전송하는 중…" FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
+                                <ProgressBar x:Name="UploadProgress" Height="3" Minimum="0" Maximum="100" Foreground="{StaticResource BrushAccent}" />
+                            </StackPanel>
+                            <Button x:Name="RetryButton" Grid.Column="1" Content="다시 시도" Visibility="Collapsed"
+                                    Click="RetryButton_Click" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        </Grid>
+                        <Grid Grid.Row="1" ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Button Style="{StaticResource ComposerButtonStyle}" Content="&#xE710;" Click="ChooseFile_Click"
+                                    ToolTipService.ToolTip="파일 첨부" AutomationProperties.Name="파일 첨부" />
+                            <TextBox x:Name="MessageInput" Grid.Column="1"
+                                     Style="{StaticResource RoundedTextBoxStyle}"
+                                     MinHeight="44" MaxHeight="120"
+                                     Padding="16,10"
+                                     AcceptsReturn="True" TextWrapping="Wrap"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     PlaceholderText="메시지를 입력하세요"
+                                     KeyDown="MessageInput_KeyDown"
+                                     TextChanged="MessageInput_TextChanged"
+                                     TextCompositionStarted="MessageInput_TextCompositionStarted"
+                                     TextCompositionEnded="MessageInput_TextCompositionEnded"
+                                     AutomationProperties.Name="메시지 입력"
+                                     ToolTipService.ToolTip="Enter 전송 · Shift+Enter 줄바꿈" />
+                            <Button x:Name="SendButton" Grid.Column="2" Style="{StaticResource SendButtonStyle}" Content="&#xE724;"
+                                    Click="SendButton_Click" IsEnabled="False"
+                                    ToolTipService.ToolTip="메시지 전송" AutomationProperties.Name="메시지 전송" />
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <!-- Drag and drop affordance -->
+                <Border x:Name="DropOverlay" Grid.Row="2" Grid.RowSpan="2" Margin="16"
+                        Background="#F2FFFFFF" BorderBrush="{StaticResource BrushAccent}" BorderThickness="2"
+                        CornerRadius="16" Visibility="Collapsed" IsHitTestVisible="False">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                        <Border Width="64" Height="64" CornerRadius="32" Background="{StaticResource BrushAccentSoft}">
+                            <FontIcon Glyph="&#xE898;" FontSize="26" Foreground="{StaticResource BrushAccent}" />
+                        </Border>
+                        <TextBlock Text="파일을 놓아서 전송" FontSize="{StaticResource FontSizeSubtitle}" FontWeight="{StaticResource WeightSemiBold}" Foreground="{StaticResource BrushTextStrong}" />
+                        <TextBlock Text="여러 파일을 한 번에 보낼 수 있습니다" FontSize="{StaticResource FontSizeCaption}" Foreground="{StaticResource BrushTextMeta}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </SplitView.Content>
+    </SplitView>
 </Page>

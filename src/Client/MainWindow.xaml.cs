@@ -1,6 +1,8 @@
 using Microsoft.UI.Xaml;
 using CommunityToolkit.Mvvm.Input;
 using H.NotifyIcon;
+using Windows.Graphics;
+using System.Diagnostics;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -20,17 +22,37 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
-        ShowFromTrayCommand = new RelayCommand(ShowFromTray);
-        InitializeComponent();
+        try
+        {
+            Debug.WriteLine("[MainWindow] Constructor started");
+            ShowFromTrayCommand = new RelayCommand(ShowFromTray);
+            InitializeComponent();
+            Debug.WriteLine("[MainWindow] InitializeComponent done");
 
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(AppTitleBar);
+            ExtendsContentIntoTitleBar = true;
+            SetTitleBar(AppTitleBar);
+            Debug.WriteLine("[MainWindow] TitleBar set");
 
-        AppWindow.SetIcon("Assets/AppIcon.ico");
-        AppWindow.Closing += AppWindow_Closing;
+            AppWindow.SetIcon("Assets/AppIcon.ico");
+            AppWindow.Closing += AppWindow_Closing;
+            Debug.WriteLine("[MainWindow] Icon set, Closing event hooked");
 
-        // Navigate the root frame to the main page on startup.
-        RootFrame.Navigate(typeof(MainPage));
+            // Navigate the root frame to the main page on startup.
+            RootFrame.Navigate(typeof(MainPage));
+            Debug.WriteLine("[MainWindow] Navigated to MainPage");
+
+            // Ensure window is visible and activated
+            this.Activate();
+            Debug.WriteLine("[MainWindow] Window activated");
+
+            AppWindow.MoveAndResize(new RectInt32(100, 100, 1280, 800));
+            Debug.WriteLine("[MainWindow] MoveAndResize done");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[MainWindow] EXCEPTION: {ex}");
+            throw;
+        }
     }
 
     private void AppWindow_Closing(

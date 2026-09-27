@@ -1,11 +1,18 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Input;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using OneToOneMessenger_Client.Services;
 using Shared;
-using Windows.System;
 using Windows.Storage;
 using Windows.Storage.Pickers;
+using Windows.System;
+using Windows.UI.Core;
 using WinRT.Interop;
 
 namespace OneToOneMessenger_Client;
@@ -13,33 +20,51 @@ namespace OneToOneMessenger_Client;
 public sealed partial class MainPage : Page
 {
     private const string UserName = "철수";
+    private const double CompactLayoutThreshold = 980;
+
     private readonly ChatApiService _apiService = new();
     private readonly ChatHubService _hubService = new(UserName);
     private readonly ClientSettingsService _settingsService = new();
     private readonly NotificationService _notificationService = new();
     private readonly ObservableCollection<MessageDto> _messages = new();
+    private readonly ObservableCollection<ChatMessageItem> _timeline = new();
     private readonly ObservableCollection<VaultFileDto> _vaultFiles = new();
     private readonly ObservableCollection<SearchResultDto> _searchResults = new();
     private readonly List<StorageFile> _failedFiles = new();
+
+    private CancellationTokenSource? _vaultSearchDebounce;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _statusTimer;
     private string? _vaultCategory;
     private string _vaultSort = "newest";
+    private bool _pageLoaded;
+    private bool _isCompactLayout;
+    private bool _wideVaultPreference = true;
+    private bool _isImeComposing;
 
     public MainPage()
     {
         InitializeComponent();
-        MessagesList.ItemsSource = _messages;
+        MessagesList.ItemsSource = _timeline;
         VaultList.ItemsSource = _vaultFiles;
         SearchResultsList.ItemsSource = _searchResults;
         Loaded += MainPage_Loaded;
         Unloaded += MainPage_Unloaded;
     }
 
-    private async void MainPage_Loaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private async void MainPage_Loaded(object sender, RoutedEventArgs e)
     {
+        if (_pageLoaded)
+        {
+            return;
+        }
+
+        _pageLoaded = true;
         _hubService.MessageReceived += OnMessageReceived;
         _hubService.PeerPresenceChanged += OnPresenceChanged;
         _hubService.MessagesRead += OnMessagesRead;
         _hubService.ConnectionStateChanged += OnConnectionStateChanged;
+
+        MessagesLoadingState.Visibility = Visibility.Visible;
         try
         {
             var messages = await _apiService.GetMessagesAsync();
@@ -47,32 +72,66 @@ public sealed partial class MainPage : Page
             {
                 foreach (var message in messages)
                 {
-                    _messages.Add(message);
+                    AddOrReplaceMessage(message, rebuild: false);
                 }
             }
 
-            await LoadVaultAsync();
-            await LoadVaultSummaryAsync();
+            RebuildTimeline();
+            UpdateMessageStates();
+            ScrollToLatestMessage();
+        }
+        catch (Exception exception)
+        {
+            ShowStatus($"대화 내용을 불러오지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
+        }
+        finally
+        {
+            MessagesLoadingState.Visibility = Visibility.Collapsed;
+            UpdateMessageStates();
+        }
+
+        try
+        {
+            await RefreshVaultAsync();
+        }
+        catch (Exception exception)
+        {
+            ShowStatus($"보관함을 불러오지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
+        }
+
+        try
+        {
             await _hubService.StartAsync();
             var unreadSequences = _messages
                 .Where(message => message.Sender != UserName && !message.IsRead)
                 .Select(message => message.Seq)
-                .Where(seq => seq > 0)
+                .Where(sequence => sequence > 0)
                 .ToArray();
             if (unreadSequences.Length > 0)
             {
                 await _hubService.MarkReadAsync(unreadSequences);
             }
-            UpdatePresence(true);
+
+            PresenceText.Text = "서버 연결됨";
+            PresenceDot.Fill = new SolidColorBrush(
+                Microsoft.UI.ColorHelper.FromArgb(255, 32, 185, 104));
         }
         catch (Exception exception)
         {
-            PresenceText.Text = $"연결 실패: {exception.Message}";
+            PresenceText.Text = "연결 안 됨";
+            ConnectionBanner.Visibility = Visibility.Visible;
+            ConnectionBannerText.Text = "서버에 연결할 수 없습니다. 잠시 후 다시 시도합니다.";
+            ShowStatus($"서버 연결에 실패했습니다: {exception.Message}", InfoBarSeverity.Error);
         }
+
+        MessageInput.Focus(FocusState.Programmatic);
     }
 
-    private async void MainPage_Unloaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private async void MainPage_Unloaded(object sender, RoutedEventArgs e)
     {
+        _pageLoaded = false;
+        _vaultSearchDebounce?.Cancel();
+        _statusTimer?.Stop();
         _hubService.MessageReceived -= OnMessageReceived;
         _hubService.PeerPresenceChanged -= OnPresenceChanged;
         _hubService.MessagesRead -= OnMessagesRead;
@@ -80,12 +139,141 @@ public sealed partial class MainPage : Page
         await _hubService.DisposeAsync();
     }
 
-    private void OnMessageReceived(MessageDto message)
+    private void AddOrReplaceMessage(MessageDto message, bool rebuild = true)
     {
-        _ = DispatcherQueue.TryEnqueue(() =>
+        var existingIndex = -1;
+        for (var index = 0; index < _messages.Count; index++)
+        {
+            if (_messages[index].Id == message.Id ||
+                (message.Seq > 0 && _messages[index].Seq == message.Seq))
+            {
+                existingIndex = index;
+                break;
+            }
+        }
+
+        if (existingIndex >= 0)
+        {
+            _messages[existingIndex] = message;
+        }
+        else
         {
             _messages.Add(message);
-            MessagesList.ScrollIntoView(message);
+        }
+
+        if (rebuild)
+        {
+            RebuildTimeline();
+            UpdateMessageStates();
+        }
+    }
+
+    private void RebuildTimeline()
+    {
+        _timeline.Clear();
+        MessageDto? previous = null;
+
+        foreach (var message in _messages.OrderBy(item => item.SentAt).ThenBy(item => item.Seq))
+        {
+            // Ignore malformed historical rows that contain neither text nor a file.
+            if (string.IsNullOrWhiteSpace(message.Body) && message.File is null)
+            {
+                continue;
+            }
+
+            var localDate = message.SentAt.ToLocalTime().Date;
+            var previousLocalDate = previous?.SentAt.ToLocalTime().Date;
+            var showDate = previous is null || localDate != previousLocalDate;
+            var isMine = message.Sender == UserName;
+            var isGrouped = previous is not null &&
+                            !showDate &&
+                            previous.Sender == message.Sender &&
+                            message.SentAt - previous.SentAt <= TimeSpan.FromMinutes(3);
+
+            _timeline.Add(new ChatMessageItem(
+                message,
+                isMine,
+                showDate,
+                FormatDateHeader(localDate),
+                showAvatar: !isMine && !isGrouped,
+                showSender: !isMine && !isGrouped,
+                groupMargin: new Thickness(0, isGrouped ? 2 : 10, 0, 0)));
+
+            previous = message;
+        }
+    }
+
+    private static string FormatDateHeader(DateTime date)
+    {
+        var culture = CultureInfo.GetCultureInfo("ko-KR");
+        var calendarDate = date.Year == DateTime.Today.Year
+            ? date.ToString("M월 d일", culture)
+            : date.ToString("yyyy년 M월 d일", culture);
+        var prefix = date == DateTime.Today
+            ? $"오늘, {calendarDate}"
+            : date == DateTime.Today.AddDays(-1)
+                ? $"어제, {calendarDate}"
+                : calendarDate;
+        return $"{prefix} {date.ToString("dddd", culture)}";
+    }
+
+    private void UpdateMessageStates()
+    {
+        MessagesEmptyState.Visibility =
+            _timeline.Count == 0 && MessagesLoadingState.Visibility != Visibility.Visible
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
+
+    private void ScrollToLatestMessage()
+    {
+        if (_timeline.Count == 0)
+        {
+            return;
+        }
+
+        var last = _timeline[^1];
+        _ = DispatcherQueue.TryEnqueue(() => MessagesList.ScrollIntoView(last));
+    }
+
+    private void ScrollToMessage(long sequence, bool highlight = true)
+    {
+        var item = _timeline.FirstOrDefault(entry => entry.Message.Seq == sequence);
+        if (item is null)
+        {
+            return;
+        }
+
+        MessagesList.ScrollIntoView(item);
+        if (!highlight)
+        {
+            return;
+        }
+
+        _ = DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (MessagesList.ContainerFromItem(item) is not ListViewItem container)
+            {
+                return;
+            }
+
+            container.Background = (Brush)Application.Current.Resources["BrushAccentSoft"];
+            await Task.Delay(1600);
+            container.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        });
+    }
+
+    private void OnMessageReceived(MessageDto message)
+    {
+        _ = DispatcherQueue.TryEnqueue(async () =>
+        {
+            AddOrReplaceMessage(message);
+            ScrollToMessage(message.Seq, highlight: false);
+
+            if (message.File is not null)
+            {
+                await RefreshVaultAsync();
+            }
         });
 
         if (message.Sender != UserName)
@@ -95,8 +283,9 @@ public sealed partial class MainPage : Page
                 notificationError is not null)
             {
                 _ = DispatcherQueue.TryEnqueue(() =>
-                    PresenceText.Text = $"알림 실패: {notificationError}");
+                    ShowStatus($"알림을 표시하지 못했습니다: {notificationError}", InfoBarSeverity.Warning));
             }
+
             _ = MarkMessageReadAsync(message.Seq);
         }
     }
@@ -111,14 +300,22 @@ public sealed partial class MainPage : Page
         _ = DispatcherQueue.TryEnqueue(() =>
         {
             ConnectionBanner.Visibility = state == "connected"
-                ? Microsoft.UI.Xaml.Visibility.Collapsed
-                : Microsoft.UI.Xaml.Visibility.Visible;
+                ? Visibility.Collapsed
+                : Visibility.Visible;
             ConnectionBannerText.Text = state == "reconnecting"
-                ? "연결 끊김 — 재연결 중…"
-                : "연결 끊김";
+                ? "연결이 끊겼습니다. 다시 연결하는 중…"
+                : "서버와 연결이 끊겼습니다.";
+
             if (state == "connected")
             {
-                PresenceText.Text = "연결됨";
+                PresenceText.Text = "서버 연결됨";
+                PresenceDot.Fill = new SolidColorBrush(
+                    Microsoft.UI.ColorHelper.FromArgb(255, 32, 185, 104));
+            }
+            else
+            {
+                PresenceText.Text = "연결 끊김";
+                PresenceDot.Fill = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 160, 170, 180));
             }
         });
     }
@@ -126,28 +323,35 @@ public sealed partial class MainPage : Page
     private void UpdatePresence(bool online)
     {
         PresenceText.Text = online ? "온라인" : "오프라인";
-        PresenceDot.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-            Microsoft.UI.ColorHelper.FromArgb(
-                255,
-                online ? (byte)45 : (byte)160,
-                online ? (byte)190 : (byte)170,
-                online ? (byte)90 : (byte)180));
+        PresenceDot.Fill = new SolidColorBrush(
+            online
+                ? Microsoft.UI.ColorHelper.FromArgb(255, 32, 185, 104)
+                : Microsoft.UI.ColorHelper.FromArgb(255, 160, 170, 180));
     }
 
     private void OnMessagesRead(string reader, long[] sequences, DateTimeOffset readAt)
     {
         _ = DispatcherQueue.TryEnqueue(() =>
         {
+            var changed = false;
             foreach (var sequence in sequences)
             {
-                var index = _messages
-                    .Select((message, position) => (message, position))
-                    .FirstOrDefault(item => item.message.Seq == sequence)
-                    .position;
-                if (index >= 0 && index < _messages.Count && _messages[index].Seq == sequence)
+                for (var index = 0; index < _messages.Count; index++)
                 {
+                    if (_messages[index].Seq != sequence)
+                    {
+                        continue;
+                    }
+
                     _messages[index] = _messages[index] with { IsRead = true, ReadAt = readAt };
+                    changed = true;
+                    break;
                 }
+            }
+
+            if (changed)
+            {
+                RebuildTimeline();
             }
         });
     }
@@ -156,7 +360,7 @@ public sealed partial class MainPage : Page
     {
         if (sequence > 0)
         {
-            await _hubService.MarkReadAsync(new[] { sequence });
+            await _hubService.MarkReadAsync([sequence]);
         }
     }
 
@@ -164,8 +368,9 @@ public sealed partial class MainPage : Page
     {
         var files = await _apiService.GetVaultAsync(
             category: _vaultCategory,
-            query: query,
+            query: string.IsNullOrWhiteSpace(query) ? null : query.Trim(),
             sort: _vaultSort);
+
         _vaultFiles.Clear();
         if (files is not null)
         {
@@ -174,97 +379,160 @@ public sealed partial class MainPage : Page
                 _vaultFiles.Add(file);
             }
         }
+
+        VaultEmptyState.Visibility = _vaultFiles.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        RecentFilesTitle.Text = _vaultFiles.Count == 0
+            ? "최근 파일"
+            : $"최근 파일 · {_vaultFiles.Count}";
     }
 
-    private async void OpenVaultMessage_Click(
-            object sender,
-            Microsoft.UI.Xaml.RoutedEventArgs e)
+    private async Task LoadVaultSummaryAsync()
+    {
+        var summary = await _apiService.GetVaultSummaryAsync();
+        if (summary is null)
         {
-            if (sender is not Button { Tag: VaultFileDto file })
-            {
-                return;
-            }
+            return;
+        }
 
+        var total = summary.Images + summary.Videos + summary.Docs + summary.Etc;
+        VaultSummaryText.Text = $"총 {total}개 파일";
+        ImageSummaryCountText.Text = $"{summary.Images}개";
+        VideoSummaryCountText.Text = $"{summary.Videos}개";
+        DocumentSummaryCountText.Text = $"{summary.Docs}개";
+        OtherSummaryCountText.Text = $"{summary.Etc}개";
+    }
+
+    private async Task RefreshVaultAsync(bool showFeedback = false)
+    {
+        VaultLoadingRing.IsActive = true;
+        VaultLoadingRing.Visibility = Visibility.Visible;
+        try
+        {
+            await LoadVaultAsync(VaultSearchInput.Text);
+            await LoadVaultSummaryAsync();
+            if (showFeedback)
+            {
+                ShowStatus("보관함을 새로 고쳤습니다.", InfoBarSeverity.Success);
+            }
+        }
+        finally
+        {
+            VaultLoadingRing.IsActive = false;
+            VaultLoadingRing.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async void OpenVaultMessage_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: VaultFileDto file })
+        {
+            return;
+        }
+
+        try
+        {
             var message = await FindMessageAsync(file.MessageSeq);
             if (message is null)
             {
-                PresenceText.Text = "원본 메시지를 불러오지 못했습니다.";
+                ShowStatus("원본 메시지를 불러오지 못했습니다.", InfoBarSeverity.Warning);
                 return;
             }
 
-            MessagesList.ScrollIntoView(message);
-            PresenceText.Text = $"원본 위치로 이동: {file.OriginalName}";
+            if (_isCompactLayout)
+            {
+                VaultSplitView.IsPaneOpen = false;
+            }
+
+            ScrollToMessage(message.Seq);
         }
+        catch (Exception exception)
+        {
+            ShowStatus($"원본 메시지를 불러오지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
+        }
+    }
 
     private async Task<MessageDto?> FindMessageAsync(long sequence)
+    {
+        var existing = _messages.FirstOrDefault(message => message.Seq == sequence);
+        if (existing is not null)
         {
-            var existing = _messages.FirstOrDefault(message => message.Seq == sequence);
+            return existing;
+        }
+
+        long? beforeSequence = _messages.Count == 0
+            ? null
+            : _messages.Min(message => message.Seq);
+
+        for (var page = 0; page < 20; page++)
+        {
+            var messages = await _apiService.GetMessagesAsync(limit: 100, beforeSeq: beforeSequence);
+            if (messages is null || messages.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var message in messages)
+            {
+                AddOrReplaceMessage(message, rebuild: false);
+            }
+
+            RebuildTimeline();
+            UpdateMessageStates();
+            existing = _messages.FirstOrDefault(message => message.Seq == sequence);
             if (existing is not null)
             {
                 return existing;
             }
 
-            long? beforeSeq = _messages.Count == 0
-                ? null
-                : _messages.Min(message => message.Seq);
-            for (var page = 0; page < 20; page++)
+            var nextBeforeSequence = messages.Min(message => message.Seq);
+            if (beforeSequence == nextBeforeSequence)
             {
-                var messages = await _apiService.GetMessagesAsync(
-                    limit: 100,
-                    beforeSeq: beforeSeq);
-                if (messages is null || messages.Count == 0)
-                {
-                    break;
-                }
-
-                foreach (var message in messages)
-                {
-                    if (_messages.All(existingMessage => existingMessage.Seq != message.Seq))
-                    {
-                        _messages.Add(message);
-                    }
-                }
-
-                existing = _messages.FirstOrDefault(message => message.Seq == sequence);
-                if (existing is not null)
-                {
-                    return existing;
-                }
-
-                var nextBeforeSeq = messages.Min(message => message.Seq);
-                if (beforeSeq == nextBeforeSeq)
-                {
-                    break;
-                }
-
-                beforeSeq = nextBeforeSeq;
+                break;
             }
 
-            return null;
-    }
-
-    private async Task LoadVaultSummaryAsync()
-        {
-            var summary = await _apiService.GetVaultSummaryAsync();
-            if (summary is not null)
-            {
-                VaultSummaryText.Text =
-                    $"이미지 {summary.Images} · 영상 {summary.Videos} · 문서 {summary.Docs} · 기타 {summary.Etc}";
+            beforeSequence = nextBeforeSequence;
         }
+
+        return null;
     }
 
-    private async void SendButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private async void SendButton_Click(object sender, RoutedEventArgs e)
     {
         await SendMessageAsync();
     }
 
     private async void MessageInput_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key == VirtualKey.Enter)
+        if (e.Key != VirtualKey.Enter || _isImeComposing)
         {
-            e.Handled = true;
-            await SendMessageAsync();
+            return;
         }
+
+        var shiftState = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift);
+        if ((shiftState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        await SendMessageAsync();
+    }
+
+    private void MessageInput_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        SendButton.IsEnabled = !string.IsNullOrWhiteSpace(MessageInput.Text);
+    }
+
+    private void MessageInput_TextCompositionStarted(TextBox sender, TextCompositionStartedEventArgs args)
+    {
+        _isImeComposing = true;
+    }
+
+    private void MessageInput_TextCompositionEnded(TextBox sender, TextCompositionEndedEventArgs args)
+    {
+        _isImeComposing = false;
     }
 
     private async Task SendMessageAsync()
@@ -276,23 +544,74 @@ public sealed partial class MainPage : Page
         }
 
         MessageInput.Text = string.Empty;
-        await _hubService.SendMessageAsync(Guid.NewGuid(), body);
+        try
+        {
+            await _hubService.SendMessageAsync(Guid.NewGuid(), body);
+            MessageInput.Focus(FocusState.Programmatic);
+        }
+        catch (Exception exception)
+        {
+            MessageInput.Text = body;
+            MessageInput.SelectionStart = MessageInput.Text.Length;
+            MessageInput.Focus(FocusState.Programmatic);
+            ShowStatus($"메시지를 보내지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
+        }
     }
 
-    private async void SettingsButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private async void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
-        var notificationsCheckBox = new CheckBox
+        var accountAvatar = new Border
         {
-            Content = "새 메시지 알림 사용",
-            IsChecked = _settingsService.NotificationsEnabled
+            Width = 44,
+            Height = 44,
+            CornerRadius = new CornerRadius(22),
+            Background = (Brush)Application.Current.Resources["BrushAccentSoft"],
+            Child = new TextBlock
+            {
+                Text = "철",
+                FontSize = 15,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = (Brush)Application.Current.Resources["BrushAccent"],
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        var accountText = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        accountText.Children.Add(new TextBlock
+        {
+            Text = UserName,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["BrushTextStrong"]
+        });
+        accountText.Children.Add(new TextBlock
+        {
+            Text = "내 프로필",
+            FontSize = 12,
+            Foreground = (Brush)Application.Current.Resources["BrushTextMeta"]
+        });
+        var accountRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        accountRow.Children.Add(accountAvatar);
+        accountRow.Children.Add(accountText);
+
+        var notificationsToggle = new ToggleSwitch
+        {
+            Header = "알림",
+            OnContent = "켜짐",
+            OffContent = "꺼짐",
+            IsOn = _settingsService.NotificationsEnabled
         };
         var downloadFolderTextBox = new TextBox
         {
             Header = "다운로드 폴더",
             Text = _settingsService.DownloadFolder,
-            IsReadOnly = true
+            IsReadOnly = true,
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
-        var chooseFolderButton = new Button { Content = "폴더 선택" };
+        var chooseFolderButton = new Button
+        {
+            Content = "폴더 변경",
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
         chooseFolderButton.Click += async (_, _) =>
         {
             if (App.CurrentWindow is null)
@@ -309,10 +628,24 @@ public sealed partial class MainPage : Page
                 downloadFolderTextBox.Text = folder.Path;
             }
         };
-        var content = new StackPanel { Spacing = 12 };
-        content.Children.Add(notificationsCheckBox);
+
+        var version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+        var content = new StackPanel { Spacing = 16, MinWidth = 380 };
+        content.Children.Add(accountRow);
+        content.Children.Add(new Border
+        {
+            Height = 1,
+            Background = (Brush)Application.Current.Resources["BrushStroke"]
+        });
+        content.Children.Add(notificationsToggle);
         content.Children.Add(downloadFolderTextBox);
         content.Children.Add(chooseFolderButton);
+        content.Children.Add(new TextBlock
+        {
+            Text = $"OneToOne Messenger  {version}",
+            FontSize = 11,
+            Foreground = (Brush)Application.Current.Resources["BrushTextMeta"]
+        });
 
         var dialog = new ContentDialog
         {
@@ -320,53 +653,93 @@ public sealed partial class MainPage : Page
             Content = content,
             PrimaryButtonText = "저장",
             CloseButtonText = "취소",
+            DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot
         };
+
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
         {
-            _settingsService.NotificationsEnabled = notificationsCheckBox.IsChecked == true;
+            _settingsService.NotificationsEnabled = notificationsToggle.IsOn;
             _settingsService.DownloadFolder = downloadFolderTextBox.Text;
+            ShowStatus("설정을 저장했습니다.", InfoBarSeverity.Success);
         }
     }
 
-    private void SearchButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private void SearchButton_Click(object sender, RoutedEventArgs e)
     {
-        SearchOverlay.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
-        MessageSearchInput.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+        OpenSearch();
     }
 
-    private void CloseSearchButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private void OpenSearch()
     {
-        SearchOverlay.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+        if (_isCompactLayout)
+        {
+            VaultSplitView.IsPaneOpen = false;
+        }
+
+        SearchOverlay.Visibility = Visibility.Visible;
+        MessageSearchInput.Focus(FocusState.Programmatic);
+    }
+
+    private void CloseSearchButton_Click(object sender, RoutedEventArgs e)
+    {
+        CloseSearch();
+    }
+
+    private void CloseSearch()
+    {
+        SearchOverlay.Visibility = Visibility.Collapsed;
         MessageSearchInput.Text = string.Empty;
         _searchResults.Clear();
         SearchStatusText.Text = string.Empty;
+        MessageInput.Focus(FocusState.Programmatic);
     }
 
     private void SearchKeyboardAccelerator_Invoked(
         KeyboardAccelerator sender,
         KeyboardAcceleratorInvokedEventArgs args)
     {
-        SearchOverlay.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
-        MessageSearchInput.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+        OpenSearch();
         args.Handled = true;
+    }
+
+    private void MainPage_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != VirtualKey.Escape)
+        {
+            return;
+        }
+
+        if (SearchOverlay.Visibility == Visibility.Visible)
+        {
+            CloseSearch();
+            e.Handled = true;
+        }
+        else if (_isCompactLayout && VaultSplitView.IsPaneOpen)
+        {
+            VaultSplitView.IsPaneOpen = false;
+            e.Handled = true;
+        }
     }
 
     private async void MessageSearchInput_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key == VirtualKey.Escape)
         {
-            CloseSearchButton_Click(sender, new Microsoft.UI.Xaml.RoutedEventArgs());
+            CloseSearch();
             e.Handled = true;
             return;
         }
 
-        if (e.Key != VirtualKey.Enter)
+        if (e.Key == VirtualKey.Enter)
         {
-            return;
+            e.Handled = true;
+            await SearchMessagesAsync();
         }
+    }
 
-        e.Handled = true;
+    private async void MessageSearchButton_Click(object sender, RoutedEventArgs e)
+    {
         await SearchMessagesAsync();
     }
 
@@ -376,10 +749,11 @@ public sealed partial class MainPage : Page
         _searchResults.Clear();
         if (query.Length == 0)
         {
-            SearchStatusText.Text = string.Empty;
+            SearchStatusText.Text = "검색어를 입력해 주세요.";
             return;
         }
 
+        SearchStatusText.Text = "검색 중…";
         try
         {
             var results = await _apiService.SearchMessagesAsync(query);
@@ -393,79 +767,198 @@ public sealed partial class MainPage : Page
 
             SearchStatusText.Text = _searchResults.Count == 0
                 ? "검색 결과가 없습니다."
-                : $"{_searchResults.Count}건";
+                : $"검색 결과 {_searchResults.Count}건";
         }
         catch (Exception exception)
         {
-            SearchStatusText.Text = $"검색 실패: {exception.Message}";
+            SearchStatusText.Text = "검색하지 못했습니다.";
+            ShowStatus($"검색에 실패했습니다: {exception.Message}", InfoBarSeverity.Error);
         }
     }
 
-    private void SearchResultsList_ItemClick(
-        object sender,
-        ItemClickEventArgs e)
+    private void SearchResultsList_ItemClick(object sender, ItemClickEventArgs e)
     {
         if (e.ClickedItem is not SearchResultDto result)
         {
             return;
         }
 
-        var existing = _messages.FirstOrDefault(message => message.Seq == result.Msg.Seq);
-        if (existing is null)
-        {
-            var insertAt = -1;
-            for (var index = 0; index < _messages.Count; index++)
-            {
-                if (_messages[index].Seq > result.Msg.Seq)
-                {
-                    insertAt = index;
-                    break;
-                }
-            }
-
-            if (insertAt < 0)
-            {
-                _messages.Add(result.Msg);
-            }
-            else
-            {
-                _messages.Insert(insertAt, result.Msg);
-            }
-            existing = result.Msg;
-        }
-
-        MessagesList.ScrollIntoView(existing);
-        SearchOverlay.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+        AddOrReplaceMessage(result.Msg);
+        CloseSearch();
+        ScrollToMessage(result.Msg.Seq);
     }
 
     private async void VaultSearchInput_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key == VirtualKey.Enter)
+        if (e.Key != VirtualKey.Enter)
         {
-            e.Handled = true;
-            await LoadVaultAsync(VaultSearchInput.Text);
+            return;
+        }
+
+        e.Handled = true;
+        _vaultSearchDebounce?.Cancel();
+        try
+        {
+            await RefreshVaultAsync();
+        }
+        catch (Exception exception)
+        {
+            ShowStatus($"파일을 검색하지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
         }
     }
 
-    private async void VaultCategory_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private async void VaultSearchInput_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (sender is Button { Tag: string category })
+        if (!_pageLoaded)
         {
-            _vaultCategory = string.IsNullOrWhiteSpace(category) ? null : category;
-            await LoadVaultAsync(VaultSearchInput.Text);
+            return;
+        }
+
+        _vaultSearchDebounce?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _vaultSearchDebounce = cancellation;
+        try
+        {
+            await Task.Delay(350, cancellation.Token);
+            await RefreshVaultAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer keystroke superseded this search.
+        }
+        catch (Exception exception)
+        {
+            ShowStatus($"파일을 검색하지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
         }
     }
 
-    private async void VaultSort_Changed(object sender, Microsoft.UI.Xaml.Controls.SelectionChangedEventArgs e)
+    private async void VaultCategory_Click(object sender, RoutedEventArgs e)
     {
-        if (VaultSortComboBox.SelectedItem is ComboBoxItem { Tag: string sort })
+        if (sender is FrameworkElement { Tag: string category })
         {
-            _vaultSort = sort;
-            await LoadVaultAsync(VaultSearchInput.Text);
+            await SelectVaultCategoryAsync(category);
         }
     }
 
-    private async void ChooseFile_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private async void VaultSummaryCategory_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string category })
+        {
+            await SelectVaultCategoryAsync(category);
+        }
+    }
+
+    private async Task SelectVaultCategoryAsync(string category)
+    {
+        _vaultCategory = string.IsNullOrWhiteSpace(category) ? null : category;
+        foreach (var button in GetVaultCategoryButtons())
+        {
+            button.IsChecked = string.Equals(button.Tag as string, category, StringComparison.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            await RefreshVaultAsync();
+        }
+        catch (Exception exception)
+        {
+            ShowStatus($"보관함 필터를 적용하지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private ToggleButton[] GetVaultCategoryButtons() =>
+    [
+        AllVaultCategoryButton,
+        ImageVaultCategoryButton,
+        VideoVaultCategoryButton,
+        DocumentVaultCategoryButton,
+        OtherVaultCategoryButton
+    ];
+
+    private async void VaultSort_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (VaultSortComboBox.SelectedItem is not ComboBoxItem { Tag: string sort })
+        {
+            return;
+        }
+
+        _vaultSort = sort;
+        if (!_pageLoaded)
+        {
+            return;
+        }
+
+        try
+        {
+            await RefreshVaultAsync();
+        }
+        catch (Exception exception)
+        {
+            ShowStatus($"정렬을 적용하지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private async void RefreshVaultButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await RefreshVaultAsync(showFeedback: true);
+        }
+        catch (Exception exception)
+        {
+            ShowStatus($"보관함을 새로 고치지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private void MainPage_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var compact = e.NewSize.Width < CompactLayoutThreshold;
+        if (compact == _isCompactLayout && VaultSplitView.DisplayMode == (compact ? SplitViewDisplayMode.Overlay : SplitViewDisplayMode.Inline))
+        {
+            return;
+        }
+
+        _isCompactLayout = compact;
+        VaultSplitView.DisplayMode = compact
+            ? SplitViewDisplayMode.Overlay
+            : SplitViewDisplayMode.Inline;
+        VaultSplitView.IsPaneOpen = compact ? false : _wideVaultPreference;
+        UpdateVaultToggleVisual();
+    }
+
+    private void VaultToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        VaultSplitView.IsPaneOpen = !VaultSplitView.IsPaneOpen;
+        if (!_isCompactLayout)
+        {
+            _wideVaultPreference = VaultSplitView.IsPaneOpen;
+        }
+
+        UpdateVaultToggleVisual();
+    }
+
+    private void CloseVaultButton_Click(object sender, RoutedEventArgs e)
+    {
+        VaultSplitView.IsPaneOpen = false;
+        if (!_isCompactLayout)
+        {
+            _wideVaultPreference = false;
+        }
+
+        UpdateVaultToggleVisual();
+    }
+
+    private void UpdateVaultToggleVisual()
+    {
+        VaultToggleButton.Background = VaultSplitView.IsPaneOpen
+            ? (Brush)Application.Current.Resources["BrushAccentSoft"]
+            : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        VaultToggleButton.Foreground = VaultSplitView.IsPaneOpen
+            ? (Brush)Application.Current.Resources["BrushAccent"]
+            : (Brush)Application.Current.Resources["BrushTextPrimary"];
+    }
+
+    private async void ChooseFile_Click(object sender, RoutedEventArgs e)
     {
         if (App.CurrentWindow is null)
         {
@@ -484,192 +977,327 @@ public sealed partial class MainPage : Page
 
     private async Task UploadFileAsync(StorageFile file)
     {
-        UploadProgress.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+        ShowTransfer($"{file.Name} 전송 중…", showProgress: true);
         UploadProgress.Value = 0;
         try
         {
-            var progress = new Progress<double>(value => UploadProgress.Value = value * 100);
-            var message = await _apiService.UploadFileAsync(file, UserName, progress);
-            if (!_messages.Any(item => item.Id == message.Id))
+            var progress = new Progress<double>(value =>
             {
-                _messages.Add(message);
-                MessagesList.ScrollIntoView(message);
-            }
-            await LoadVaultAsync();
-            _failedFiles.Remove(file);
-            RetryButton.Visibility = _failedFiles.Count == 0
-                ? Microsoft.UI.Xaml.Visibility.Collapsed
-                : Microsoft.UI.Xaml.Visibility.Visible;
+                UploadProgress.Value = value * 100;
+                TransferStatusText.Text = $"{file.Name} 전송 중 · {value:P0}";
+            });
+            var message = await _apiService.UploadFileAsync(file, UserName, progress);
+            AddOrReplaceMessage(message);
+            ScrollToMessage(message.Seq, highlight: false);
+            await RefreshVaultAsync();
+            _failedFiles.RemoveAll(item => item.Path == file.Path);
+            ShowStatus($"{file.Name} 파일을 보냈습니다.", InfoBarSeverity.Success);
         }
         catch (Exception exception)
         {
-            _failedFiles.Add(file);
-            RetryButton.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
-            PresenceText.Text = $"파일 전송 실패: {exception.Message}";
+            if (_failedFiles.All(item => item.Path != file.Path))
+            {
+                _failedFiles.Add(file);
+            }
+
+            TransferStatusText.Text = $"{file.Name} 전송 실패";
+            ShowStatus($"파일을 보내지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
         }
         finally
         {
-            UploadProgress.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+            UpdateTransferFailureState();
         }
     }
 
-    private async void RetryButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private async void RetryButton_Click(object sender, RoutedEventArgs e)
+    {
+        var pending = _failedFiles.ToArray();
+        foreach (var file in pending)
         {
-            var pending = _failedFiles.ToArray();
-            foreach (var file in pending)
-            {
-                await UploadFileAsync(file);
-            }
+            await UploadFileAsync(file);
         }
-
-    private void ChatArea_DragOver(object sender, Microsoft.UI.Xaml.DragEventArgs e)
-        {
-            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-        }
-
-    private async void ChatArea_Drop(object sender, Microsoft.UI.Xaml.DragEventArgs e)
-        {
-            if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
-            {
-                return;
-            }
-
-            var items = await e.DataView.GetStorageItemsAsync();
-            foreach (var item in items.OfType<StorageFile>())
-            {
-                await UploadFileAsync(item);
-            }
-        }
-
-    private async void PreviewImage_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
-        {
-            if (sender is not Image { Tag: Guid fileId } || App.CurrentWindow is null)
-            {
-                return;
-            }
-
-            var dialog = new ContentDialog
-            {
-                Title = "이미지 미리보기",
-                CloseButtonText = "닫기",
-                XamlRoot = Content.XamlRoot,
-                Content = new Image
-                {
-                    Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
-                        new Uri($"http://localhost:5000/api/files/{fileId}/download")),
-                    MaxWidth = 900,
-                    MaxHeight = 650,
-                    Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform
-                }
-            };
-            await dialog.ShowAsync();
     }
 
-    private void PreviewImage_Failed(object sender, Microsoft.UI.Xaml.ExceptionRoutedEventArgs e)
+    private void ShowTransfer(string text, bool showProgress)
+    {
+        TransferStatusText.Text = text;
+        TransferStatusPanel.Visibility = Visibility.Visible;
+        UploadProgress.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;
+        RetryButton.Visibility = Visibility.Collapsed;
+    }
+
+    private void UpdateTransferFailureState()
+    {
+        if (_failedFiles.Count == 0)
+        {
+            TransferStatusPanel.Visibility = Visibility.Collapsed;
+            RetryButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        TransferStatusPanel.Visibility = Visibility.Visible;
+        UploadProgress.Visibility = Visibility.Collapsed;
+        RetryButton.Visibility = Visibility.Visible;
+        TransferStatusText.Text = $"전송하지 못한 파일 {_failedFiles.Count}개";
+    }
+
+    private void ChatArea_DragEnter(object sender, DragEventArgs e)
+    {
+        if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        {
+            DropOverlay.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void ChatArea_DragLeave(object sender, DragEventArgs e)
+    {
+        DropOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void ChatArea_DragOver(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        {
+            return;
+        }
+
+        e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+        e.DragUIOverride.Caption = "파일 전송";
+        e.DragUIOverride.IsContentVisible = true;
+    }
+
+    private async void ChatArea_Drop(object sender, DragEventArgs e)
+    {
+        DropOverlay.Visibility = Visibility.Collapsed;
+        if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        {
+            return;
+        }
+
+        var items = await e.DataView.GetStorageItemsAsync();
+        foreach (var item in items.OfType<StorageFile>())
+        {
+            await UploadFileAsync(item);
+        }
+    }
+
+    private async void PreviewImage_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (sender is not Image { Tag: Guid fileId })
+        {
+            return;
+        }
+
+        var image = new Image
+        {
+            Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
+                new Uri($"http://localhost:5000/api/files/{fileId}/download")),
+            MaxWidth = 960,
+            MaxHeight = 680,
+            Stretch = Stretch.Uniform
+        };
+        var previewSurface = new Border
+        {
+            Background = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 21, 25, 33)),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(12),
+            Child = image
+        };
+        var dialog = new ContentDialog
+        {
+            Title = "이미지 미리보기",
+            CloseButtonText = "닫기",
+            XamlRoot = Content.XamlRoot,
+            Content = previewSurface
+        };
+        await dialog.ShowAsync();
+    }
+
+    private void PreviewImage_Failed(object sender, ExceptionRoutedEventArgs e)
     {
         if (sender is not Image image || image.Parent is not Grid previewContainer)
         {
             return;
         }
 
-        image.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+        image.Visibility = Visibility.Collapsed;
         if (previewContainer.Children.Count > 1 &&
-            previewContainer.Children[1] is Microsoft.UI.Xaml.FrameworkElement placeholder)
+            previewContainer.Children[1] is FrameworkElement placeholder)
         {
-            placeholder.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+            placeholder.Visibility = Visibility.Visible;
         }
     }
 
-    private async void DownloadFile_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private async void DownloadFile_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: FileDto file })
+        if (sender is not FrameworkElement { Tag: object tag } || GetFileDto(tag) is not { } file)
         {
             return;
         }
 
-        var folderPath = _settingsService.DownloadFolder;
-        if (!Directory.Exists(folderPath))
+        try
         {
+            var folderPath = _settingsService.DownloadFolder;
             Directory.CreateDirectory(folderPath);
+            var destinationPath = GetAvailablePath(folderPath, file.OriginalName);
+            await DownloadToPathAsync(file, destinationPath);
+            ShowStatus($"다운로드 완료 · {file.OriginalName}", InfoBarSeverity.Success);
+            _notificationService.TryShow("다운로드 완료", file.OriginalName, out _);
         }
-
-        var safeName = Path.GetFileName(file.OriginalName);
-        var destinationPath = Path.Combine(folderPath, safeName);
-        if (File.Exists(destinationPath))
+        catch (Exception exception)
         {
-            var name = Path.GetFileNameWithoutExtension(safeName);
-            var extension = Path.GetExtension(safeName);
-            destinationPath = Path.Combine(
-                folderPath,
-                $"{name}-{DateTime.Now:yyyyMMddHHmmss}{extension}");
+            ShowStatus($"다운로드하지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private async void SaveAsFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: object tag } ||
+            GetFileDto(tag) is not { } file ||
+            App.CurrentWindow is null)
+        {
+            return;
         }
 
-        var progress = new Progress<double>(value => UploadProgress.Value = value * 100);
-        UploadProgress.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+        try
+        {
+            var picker = new FileSavePicker();
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(App.CurrentWindow));
+            var originalName = Path.GetFileName(file.OriginalName);
+            var extension = Path.GetExtension(originalName);
+            picker.SuggestedFileName = Path.GetFileNameWithoutExtension(originalName);
+            picker.FileTypeChoices.Add(
+                string.IsNullOrWhiteSpace(extension) ? "파일" : extension.ToUpperInvariant() + " 파일",
+                [string.IsNullOrWhiteSpace(extension) ? ".bin" : extension]);
+
+            var destination = await picker.PickSaveFileAsync();
+            if (destination is null)
+            {
+                return;
+            }
+
+            await DownloadToPathAsync(file, destination.Path);
+            ShowStatus($"저장 완료 · {file.OriginalName}", InfoBarSeverity.Success);
+        }
+        catch (Exception exception)
+        {
+            ShowStatus($"파일을 저장하지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private static FileDto? GetFileDto(object tag) =>
+        tag switch
+        {
+            FileDto file => file,
+            VaultFileDto file => new FileDto(
+                file.Id,
+                file.OriginalName,
+                file.MimeType,
+                file.SizeBytes,
+                file.Category,
+                file.CreatedAt),
+            _ => null
+        };
+
+    private async Task DownloadToPathAsync(FileDto file, string destinationPath)
+    {
+        ShowTransfer($"{file.OriginalName} 다운로드 중…", showProgress: true);
+        UploadProgress.Value = 0;
+        var progress = new Progress<double>(value =>
+        {
+            UploadProgress.Value = value * 100;
+            TransferStatusText.Text = $"{file.OriginalName} 다운로드 중 · {value:P0}";
+        });
+
         try
         {
             await _apiService.DownloadFileAsync(file.Id, destinationPath, progress);
-            PresenceText.Text = $"다운로드 완료: {file.OriginalName}";
-            if (_settingsService.NotificationsEnabled &&
-                !_notificationService.TryShow(
-                    "다운로드 완료",
-                    file.OriginalName,
-                    out var notificationError) &&
-                notificationError is not null)
-            {
-                PresenceText.Text = $"알림 실패: {notificationError}";
-            }
         }
-        catch (Exception exception)
+        catch
         {
-            PresenceText.Text = $"다운로드 실패: {exception.Message}";
+            if (File.Exists(destinationPath))
+            {
+                File.Delete(destinationPath);
+            }
+
+            throw;
         }
         finally
         {
-            UploadProgress.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+            UpdateTransferFailureState();
         }
     }
 
-    private async void SaveAsFile_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private static string GetAvailablePath(string folderPath, string originalName)
     {
-        if (sender is not Button { Tag: FileDto file } || App.CurrentWindow is null)
+        var safeName = Path.GetFileName(originalName);
+        if (string.IsNullOrWhiteSpace(safeName))
         {
-            return;
+            safeName = "download";
         }
 
-        var picker = new FileSavePicker();
-        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(App.CurrentWindow));
-        picker.SuggestedFileName = Path.GetFileName(file.OriginalName);
-        picker.FileTypeChoices.Add("모든 파일", new List<string> { "*" });
-        var destination = await picker.PickSaveFileAsync();
-        if (destination is null)
+        var path = Path.Combine(folderPath, safeName);
+        if (!File.Exists(path))
         {
-            return;
+            return path;
         }
 
-        var progress = new Progress<double>(value => UploadProgress.Value = value * 100);
-        UploadProgress.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
-        try
+        var name = Path.GetFileNameWithoutExtension(safeName);
+        var extension = Path.GetExtension(safeName);
+        for (var index = 1; ; index++)
         {
-            await _apiService.DownloadFileAsync(file.Id, destination.Path, progress);
-            PresenceText.Text = $"저장 완료: {file.OriginalName}";
-            if (_settingsService.NotificationsEnabled &&
-                !_notificationService.TryShow(
-                    "다운로드 완료",
-                    file.OriginalName,
-                    out var notificationError) &&
-                notificationError is not null)
+            path = Path.Combine(folderPath, $"{name} ({index}){extension}");
+            if (!File.Exists(path))
             {
-                PresenceText.Text = $"알림 실패: {notificationError}";
+                return path;
             }
         }
-        catch (Exception exception)
-        {
-            PresenceText.Text = $"저장 실패: {exception.Message}";
-        }
-        finally
-        {
-            UploadProgress.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
-        }
     }
+
+    private void ShowStatus(string message, InfoBarSeverity severity = InfoBarSeverity.Informational)
+    {
+        OperationInfoBar.Message = message;
+        OperationInfoBar.Severity = severity;
+        OperationInfoBar.IsOpen = true;
+
+        if (_statusTimer is null)
+        {
+            _statusTimer = DispatcherQueue.CreateTimer();
+            _statusTimer.Interval = TimeSpan.FromSeconds(4);
+            _statusTimer.IsRepeating = false;
+            _statusTimer.Tick += (_, _) => OperationInfoBar.IsOpen = false;
+        }
+
+        _statusTimer.Stop();
+        _statusTimer.Start();
+    }
+}
+
+public sealed class ChatMessageItem
+{
+    public ChatMessageItem(
+        MessageDto message,
+        bool isMine,
+        bool showDateHeader,
+        string dateHeader,
+        bool showAvatar,
+        bool showSender,
+        Thickness groupMargin)
+    {
+        Message = message;
+        IsMine = isMine;
+        ShowDateHeader = showDateHeader;
+        DateHeader = dateHeader;
+        ShowAvatar = showAvatar;
+        ShowSender = showSender;
+        GroupMargin = groupMargin;
+    }
+
+    public MessageDto Message { get; }
+    public bool IsMine { get; }
+    public bool ShowDateHeader { get; }
+    public string DateHeader { get; }
+    public bool ShowAvatar { get; }
+    public bool ShowSender { get; }
+    public Thickness GroupMargin { get; }
 }
