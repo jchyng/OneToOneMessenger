@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using H.NotifyIcon;
 using Windows.Graphics;
 using System.Diagnostics;
+using System.Threading;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -17,8 +18,10 @@ namespace OneToOneMessenger_Client;
 public sealed partial class MainWindow : Window
 {
     private bool _allowClose;
+    private int _exitRequested;
 
     public RelayCommand ShowFromTrayCommand { get; }
+    public AsyncRelayCommand ExitFromTrayCommand { get; }
 
     public MainWindow()
     {
@@ -26,6 +29,7 @@ public sealed partial class MainWindow : Window
         {
             Debug.WriteLine("[MainWindow] Constructor started");
             ShowFromTrayCommand = new RelayCommand(ShowFromTray);
+            ExitFromTrayCommand = new AsyncRelayCommand(RequestExitAsync);
             InitializeComponent();
             Debug.WriteLine("[MainWindow] InitializeComponent done");
 
@@ -75,26 +79,93 @@ public sealed partial class MainWindow : Window
         Activate();
     }
 
-    private void TrayOpen_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Requests a full application exit.  This is intentionally separate from the
+    /// normal window-close path, which only hides the window in the notification area.
+    /// </summary>
+    public async Task RequestExitAsync()
     {
-        ShowFromTray();
-    }
+        if (Interlocked.Exchange(ref _exitRequested, 1) != 0)
+        {
+            Debug.WriteLine("[MainWindow] RequestExitAsync: already requested, returning");
+            return;
+        }
 
-    private async void TrayExit_Click(object sender, RoutedEventArgs e)
-    {
+        Debug.WriteLine("[MainWindow] RequestExitAsync: starting exit sequence");
         _allowClose = true;
-        TrayIcon.Dispose();
         try
         {
+            await ExitAsync();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[MainWindow] RequestExitAsync error: {ex}");
+        }
+    }
+
+    private async Task ExitAsync()
+    {
+        try
+        {
+            // A tray-icon failure must never prevent the application from exiting.
+            // Dispose on background thread to avoid blocking UI thread.
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    TrayIcon.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[MainWindow] Could not dispose tray icon: {ex}");
+                }
+            });
+
             if (RootFrame.Content is MainPage page)
             {
-                await page.ShutdownAsync();
+                // SignalR cleanup can wait on an unavailable server. Do not leave the
+                // application resident forever when the user explicitly chose Exit.
+                var shutdownTask = page.ShutdownAsync();
+                var completedTask = await Task.WhenAny(shutdownTask, Task.Delay(TimeSpan.FromSeconds(3)));
+                
+                if (completedTask == shutdownTask)
+                {
+                    // Shutdown completed normally, propagate any exception
+                    await shutdownTask;
+                }
+                else
+                {
+                    Debug.WriteLine("[MainWindow] Shutdown timed out after 3 seconds, forcing exit");
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[MainWindow] Shutdown failed: {ex}");
         }
         finally
         {
+            // In WinUI 3 / Windows App SDK, the application does NOT automatically exit
+            // when the last window closes. We must explicitly call Exit().
+            try
+            {
+                Debug.WriteLine("[MainWindow] Calling Application.Current.Exit()");
+                Application.Current.Exit();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MainWindow] Application.Exit() failed: {ex}");
+            }
+
+            // Close the window - this will trigger AppWindow_Closing with _allowClose=true
+            // which allows the window to actually close.
             Close();
-            Application.Current.Exit();
+
+            // WinUI 3의 Application.Exit()이 신뢰성 있게 작동하지 않을 수 있으므로
+            // 강제 종료를 최후 수단으로 사용합니다.
+            // Application.Exit()이 정상 작동하면 여기까지 오지 않습니다.
+            Debug.WriteLine("[MainWindow] Forcing process exit via Environment.Exit(0)");
+            Environment.Exit(0);
         }
     }
 }

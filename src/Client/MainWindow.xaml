@@ -16,9 +16,9 @@
     <Grid>
         <Grid.Resources>
             <MenuFlyout x:Key="TrayMenu">
-                <MenuFlyoutItem Text="열기" Click="TrayOpen_Click" />
+                <MenuFlyoutItem Text="열기" Command="{x:Bind ShowFromTrayCommand}" />
                 <MenuFlyoutSeparator />
-                <MenuFlyoutItem Text="종료" Click="TrayExit_Click" />
+                <MenuFlyoutItem Text="종료" Command="{x:Bind ExitFromTrayCommand}" />
             </MenuFlyout>
         </Grid.Resources>
         <Grid.RowDefinitions>
@@ -41,7 +41,7 @@
         <tb:TaskbarIcon x:Name="TrayIcon"
                         ToolTipText="OneToOneMessenger"
                         ContextFlyout="{StaticResource TrayMenu}"
-                        MenuActivation="LeftOrRightClick"
+                        MenuActivation="RightClick"
                         DoubleClickCommand="{x:Bind ShowFromTrayCommand}">
             <tb:TaskbarIcon.IconSource>
                 <tb:GeneratedIconSource Text="1" Foreground="White" Background="#3D7EFF" />

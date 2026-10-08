@@ -13,7 +13,9 @@ using Microsoft.UI.Xaml.Shapes;
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using Microsoft.UI.Dispatching;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -28,6 +30,12 @@ public partial class App : Application
     private Window? _window;
     public static Window? CurrentWindow { get; private set; }
     
+    // P/Invoke to attach to parent console (for Ctrl+C support when launched from terminal)
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AttachConsole(uint dwProcessId);
+    
+    private const uint ATTACH_PARENT_PROCESS = 0xFFFFFFFF;
+
     /// <summary>
     /// Initializes the singleton application object.  This is the first line of authored code
     /// executed, and as such is the logical equivalent of main() or WinMain().
@@ -40,6 +48,40 @@ public partial class App : Application
         this.UnhandledException += App_UnhandledException;
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
         TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
+        
+        // Try to attach to parent console for Ctrl+C support when launched from terminal
+        TryAttachConsole();
+        Console.CancelKeyPress += Console_CancelKeyPress;
+    }
+
+    private void TryAttachConsole()
+    {
+        try
+        {
+            // Attach to parent process console if launched from command prompt/terminal
+            // This enables Ctrl+C handling for debugging scenarios
+            AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+        catch
+        {
+            // Ignore failures - not critical if no console is available
+        }
+    }
+
+    private void Console_CancelKeyPress(object? sender, ConsoleCancelEventArgs e)
+    {
+        // A WinUI application's UI objects must only be touched on its UI thread.
+        // If the dispatcher is unavailable, leave Cancel false so Windows performs
+        // its normal Ctrl+C termination instead of leaving a startup process behind.
+        if (_window is not MainWindow window)
+        {
+            return;
+        }
+
+        e.Cancel = window.DispatcherQueue.TryEnqueue(DispatcherQueuePriority.High, async () =>
+        {
+            await window.RequestExitAsync();
+        });
     }
 
     private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
