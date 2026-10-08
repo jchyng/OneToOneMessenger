@@ -1268,8 +1268,9 @@ public sealed partial class MainPage : Page
                 _failedFiles.Add(file);
             }
 
+            var friendlyMessage = FormatFileErrorMessage(exception);
             TransferStatusText.Text = $"{file.Name} 전송 실패";
-            ShowStatus($"파일을 보내지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
+            ShowStatus($"파일을 보내지 못했습니다: {friendlyMessage}", InfoBarSeverity.Error);
         }
         finally
         {
@@ -1541,6 +1542,43 @@ public sealed partial class MainPage : Page
 
         _statusTimer.Stop();
         _statusTimer.Start();
+    }
+
+    private static string FormatFileErrorMessage(Exception exception)
+    {
+        if ((uint)exception.HResult == 0x8007016A ||
+            exception.Message.Contains("클라우드 파일 공급자", StringComparison.OrdinalIgnoreCase) ||
+            exception.Message.Contains("cloud file", StringComparison.OrdinalIgnoreCase) ||
+            (exception.InnerException is not null && ((uint)exception.InnerException.HResult == 0x8007016A ||
+             exception.InnerException.Message.Contains("클라우드 파일 공급자", StringComparison.OrdinalIgnoreCase))))
+        {
+            return "클라우드(OneDrive 등) 동기화 파일 공급자가 실행되고 있지 않아 파일을 읽을 수 없습니다. OneDrive를 실행하거나 로컬 일반 폴더의 파일을 선택해 주세요.";
+        }
+
+        if (exception is HttpRequestException httpEx)
+        {
+            if (httpEx.StatusCode == System.Net.HttpStatusCode.RequestEntityTooLarge)
+            {
+                return "파일 크기가 서버 허용 한도(최대 512MB)를 초과했습니다.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(httpEx.Message))
+            {
+                return httpEx.Message;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(exception.Message))
+        {
+            return exception.Message;
+        }
+
+        if (exception.InnerException is not null && !string.IsNullOrWhiteSpace(exception.InnerException.Message))
+        {
+            return exception.InnerException.Message;
+        }
+
+        return $"알 수 없는 오류가 발생했습니다 (0x{exception.HResult:X8})";
     }
 }
 

@@ -89,15 +89,56 @@ public sealed class ChatApiService
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        await using var stream = await file.OpenStreamForReadAsync();
-        using var content = new ProgressStreamContent(stream, progress);
-        content.Headers.ContentType = new MediaTypeHeaderValue(
-            string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType);
+        Stream stream;
+        if (!string.IsNullOrWhiteSpace(file.Path) && File.Exists(file.Path))
+        {
+            try
+            {
+                stream = new FileStream(file.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, useAsync: true);
+            }
+            catch (Exception ex) when ((uint)ex.HResult != 0x8007016A && ex is not IOException)
+            {
+                stream = await file.OpenStreamForReadAsync();
+            }
+        }
+        else
+        {
+            stream = await file.OpenStreamForReadAsync();
+        }
 
-        var uri = $"api/files/upload?name={Uri.EscapeDataString(file.Name)}&sender={Uri.EscapeDataString(sender)}&clientMessageId={clientMessageId}";
-        using var response = await _httpClient.PostAsync(uri, content, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<MessageDto>(cancellationToken: cancellationToken))!;
+        await using (stream)
+        {
+            using var content = new ProgressStreamContent(stream, progress);
+            content.Headers.ContentType = !string.IsNullOrWhiteSpace(file.ContentType) &&
+                                          MediaTypeHeaderValue.TryParse(file.ContentType, out var parsedType)
+                ? parsedType
+                : new MediaTypeHeaderValue("application/octet-stream");
+
+            var uri = $"api/files/upload?name={Uri.EscapeDataString(file.Name)}&sender={Uri.EscapeDataString(sender)}&clientMessageId={clientMessageId}";
+            using var response = await _httpClient.PostAsync(uri, content, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                string? serverError = null;
+                try
+                {
+                    var errorObj = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(cancellationToken: cancellationToken);
+                    if (errorObj.TryGetProperty("error", out var errProp) || errorObj.TryGetProperty("Error", out errProp))
+                    {
+                        serverError = errProp.GetString();
+                    }
+                }
+                catch { }
+
+                if (!string.IsNullOrWhiteSpace(serverError))
+                {
+                    throw new HttpRequestException($"서버 오류 ({(int)response.StatusCode}): {serverError}", null, response.StatusCode);
+                }
+
+                response.EnsureSuccessStatusCode();
+            }
+
+            return (await response.Content.ReadFromJsonAsync<MessageDto>(cancellationToken: cancellationToken))!;
+        }
     }
 
     public async Task DownloadFileAsync(
@@ -163,15 +204,15 @@ public sealed class ChatApiService
             _progress = progress;
         }
 
-        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
         {
             var buffer = new byte[64 * 1024];
             var total = _stream.CanSeek ? _stream.Length : -1;
             long copied = 0;
             int read;
-            while ((read = await _stream.ReadAsync(buffer)) > 0)
+            while ((read = await _stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)) > 0)
             {
-                await stream.WriteAsync(buffer.AsMemory(0, read));
+                await stream.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
                 copied += read;
                 if (total > 0)
                 {
@@ -179,6 +220,9 @@ public sealed class ChatApiService
                 }
             }
         }
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            SerializeToStreamAsync(stream, context, CancellationToken.None);
 
         protected override bool TryComputeLength(out long length)
         {

@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR;
 using MessengerServer.Data;
 using MessengerServer.Hubs;
 using MessengerServer.Services;
@@ -6,6 +6,10 @@ using MessengerServer.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.WebHost.UseUrls(builder.Configuration["Server:Urls"] ?? "http://localhost:5000");
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = FileStore.MaximumFileSizeBytes;
+});
 builder.Services.AddSingleton<DatabaseInitializer>();
 builder.Services.AddSingleton<FileCategoryService>();
 builder.Services.AddSingleton<FileStore>();
