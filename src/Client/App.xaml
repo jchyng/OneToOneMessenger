@@ -11,24 +11,61 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- Color system -->
-            <Color x:Key="ColorAccent">#3D7EFF</Color>
-            <Color x:Key="ColorAccentHover">#326FE8</Color>
-            <Color x:Key="ColorAccentSoft">#EAF2FF</Color>
+            <!-- ═══════════════════════════════════════════════
+                 Fonts
+            ═══════════════════════════════════════════════ -->
+            <FontFamily x:Key="AppFontFamily">ms-appx:///Assets/Fonts/PretendardVariable.ttf#Pretendard</FontFamily>
+
+            <!-- ═══════════════════════════════════════════════
+                 Telegram Light — Color Tokens
+            ═══════════════════════════════════════════════ -->
+            <!-- Accent -->
+            <Color x:Key="ColorAccent">#3D9BFF</Color>
+            <Color x:Key="ColorAccentHover">#2E8AEE</Color>
+            <Color x:Key="ColorAccentSoft">#E3F0FF</Color>
+            <Color x:Key="ColorAccentGradientStart">#64B8FF</Color>
+            <Color x:Key="ColorAccentGradientEnd">#3D7EFF</Color>
+
+            <!-- Surfaces -->
             <Color x:Key="ColorSurface">#FFFFFF</Color>
-            <Color x:Key="ColorSurfaceAlt">#F5F7FA</Color>
-            <Color x:Key="ColorChatCanvas">#FAFBFD</Color>
-            <Color x:Key="ColorBubbleIn">#F0F2F5</Color>
-            <Color x:Key="ColorStroke">#E5E9F0</Color>
-            <Color x:Key="ColorStrokeStrong">#D7DDE7</Color>
-            <Color x:Key="ColorTextPrimary">#273142</Color>
-            <Color x:Key="ColorTextStrong">#161C27</Color>
-            <Color x:Key="ColorTextMeta">#7D889B</Color>
-            <Color x:Key="ColorSuccess">#20B968</Color>
+            <Color x:Key="ColorSurfaceAlt">#F1F3F8</Color>
+            <!-- 채팅 배경 — 텔레그램 기본 채팅 캔버스색 -->
+            <Color x:Key="ColorChatCanvas">#DAE7F3</Color>
+
+            <!-- Bubbles -->
+            <!-- 수신: 흰색 카드 -->
+            <Color x:Key="ColorBubbleIn">#FFFFFF</Color>
+            <!-- 발신: 그러데이션은 LinearGradientBrush로 별도 정의 -->
+            <Color x:Key="ColorBubbleOutStart">#64B8FF</Color>
+            <Color x:Key="ColorBubbleOutEnd">#3D7EFF</Color>
+
+            <!-- Strokes -->
+            <Color x:Key="ColorStroke">#E2E8F0</Color>
+            <Color x:Key="ColorStrokeStrong">#C8D2E0</Color>
+            <!-- 수신 버블 테두리 -->
+            <Color x:Key="ColorBubbleInBorder">#E6EBF3</Color>
+
+            <!-- Text -->
+            <Color x:Key="ColorTextPrimary">#2C3E55</Color>
+            <Color x:Key="ColorTextStrong">#17212B</Color>
+            <Color x:Key="ColorTextMeta">#8A99AD</Color>
+            <!-- 발신 버블 텍스트 (흰색) -->
+            <Color x:Key="ColorBubbleOutText">#FFFFFF</Color>
+            <!-- 수신 버블 텍스트 -->
+            <Color x:Key="ColorBubbleInText">#2C3E55</Color>
+
+            <!-- Status -->
+            <Color x:Key="ColorSuccess">#4CAF7D</Color>
             <Color x:Key="ColorDanger">#E5484D</Color>
             <Color x:Key="ColorWarning">#F2A93B</Color>
             <Color x:Key="ColorOverlay">#660E1726</Color>
+            <!-- 온라인 상태 닷 -->
+            <Color x:Key="ColorOnline">#4CAF7D</Color>
+            <Color x:Key="ColorOffline">#8A99AD</Color>
 
+            <!-- ═══════════════════════════════════════════════
+                 Brushes
+            ═══════════════════════════════════════════════ -->
             <SolidColorBrush x:Key="BrushAccent" Color="{StaticResource ColorAccent}" />
             <SolidColorBrush x:Key="BrushAccentHover" Color="{StaticResource ColorAccentHover}" />
             <SolidColorBrush x:Key="BrushAccentSoft" Color="{StaticResource ColorAccentSoft}" />
@@ -36,7 +73,14 @@
             <SolidColorBrush x:Key="BrushSurfaceAlt" Color="{StaticResource ColorSurfaceAlt}" />
             <SolidColorBrush x:Key="BrushChatCanvas" Color="{StaticResource ColorChatCanvas}" />
             <SolidColorBrush x:Key="BrushBubbleIn" Color="{StaticResource ColorBubbleIn}" />
-            <SolidColorBrush x:Key="BrushBubbleOut" Color="{StaticResource ColorAccentSoft}" />
+            <SolidColorBrush x:Key="BrushBubbleInBorder" Color="{StaticResource ColorBubbleInBorder}" />
+            <SolidColorBrush x:Key="BrushBubbleOutText" Color="{StaticResource ColorBubbleOutText}" />
+            <SolidColorBrush x:Key="BrushBubbleInText" Color="{StaticResource ColorBubbleInText}" />
+            <!-- 발신 버블 그러데이션 -->
+            <LinearGradientBrush x:Key="BrushBubbleOut" StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="{StaticResource ColorBubbleOutStart}" Offset="0" />
+                <GradientStop Color="{StaticResource ColorBubbleOutEnd}" Offset="1" />
+            </LinearGradientBrush>
             <SolidColorBrush x:Key="BrushStroke" Color="{StaticResource ColorStroke}" />
             <SolidColorBrush x:Key="BrushStrokeStrong" Color="{StaticResource ColorStrokeStrong}" />
             <SolidColorBrush x:Key="BrushTextPrimary" Color="{StaticResource ColorTextPrimary}" />
@@ -46,9 +90,13 @@
             <SolidColorBrush x:Key="BrushDanger" Color="{StaticResource ColorDanger}" />
             <SolidColorBrush x:Key="BrushWarning" Color="{StaticResource ColorWarning}" />
             <SolidColorBrush x:Key="BrushOverlay" Color="{StaticResource ColorOverlay}" />
+            <SolidColorBrush x:Key="BrushOnline" Color="{StaticResource ColorOnline}" />
+            <SolidColorBrush x:Key="BrushOffline" Color="{StaticResource ColorOffline}" />
 
-            <!-- Shape and spacing tokens -->
-            <CornerRadius x:Key="RadiusBubble">16</CornerRadius>
+            <!-- ═══════════════════════════════════════════════
+                 Shape & Spacing Tokens
+            ═══════════════════════════════════════════════ -->
+            <CornerRadius x:Key="RadiusBubble">18</CornerRadius>
             <CornerRadius x:Key="RadiusCard">12</CornerRadius>
             <CornerRadius x:Key="RadiusInput">22</CornerRadius>
             <CornerRadius x:Key="RadiusButton">10</CornerRadius>
@@ -57,77 +105,131 @@
             <x:Double x:Key="SpaceSection">16</x:Double>
             <x:Double x:Key="SpaceInline">8</x:Double>
 
-            <!-- Type scale -->
-            <FontFamily x:Key="AppFontFamily">Segoe UI</FontFamily>
+            <!-- ═══════════════════════════════════════════════
+                 Type Scale
+            ═══════════════════════════════════════════════ -->
             <x:Double x:Key="FontSizeTitle">18</x:Double>
-            <x:Double x:Key="FontSizeSubtitle">16</x:Double>
+            <x:Double x:Key="FontSizeSubtitle">15</x:Double>
             <x:Double x:Key="FontSizeBody">14</x:Double>
             <x:Double x:Key="FontSizeCaption">12</x:Double>
             <x:Double x:Key="FontSizeMeta">11</x:Double>
             <FontWeight x:Key="WeightMedium">Medium</FontWeight>
             <FontWeight x:Key="WeightSemiBold">SemiBold</FontWeight>
 
-            <!-- Buttons -->
+            <!-- ═══════════════════════════════════════════════
+                 Button Styles
+            ═══════════════════════════════════════════════ -->
             <Style x:Key="HeaderIconButtonStyle" TargetType="Button">
+                <Setter Property="Width" Value="38" />
+                <Setter Property="Height" Value="38" />
+                <Setter Property="MinWidth" Value="38" />
+                <Setter Property="MinHeight" Value="38" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="19" />
+                <Setter Property="Foreground" Value="{StaticResource BrushTextMeta}" />
+                <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="ComposerAttachButtonStyle" TargetType="Button">
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="MinWidth" Value="36" />
+                <Setter Property="MinHeight" Value="36" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="18" />
+                <Setter Property="Foreground" Value="{StaticResource BrushTextMeta}" />
+                <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
+                <Setter Property="FontSize" Value="18" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+            </Style>
+
+            <!-- 하위 호환: ComposerButtonStyle → ComposerAttachButtonStyle과 동일 -->
+            <Style x:Key="ComposerButtonStyle" TargetType="Button" BasedOn="{StaticResource ComposerAttachButtonStyle}" />
+
+            <Style x:Key="SendButtonStyle" TargetType="Button">
                 <Setter Property="Width" Value="40" />
                 <Setter Property="Height" Value="40" />
                 <Setter Property="MinWidth" Value="40" />
                 <Setter Property="MinHeight" Value="40" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="CornerRadius" Value="20" />
-                <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}" />
                 <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
                 <Setter Property="FontSize" Value="17" />
                 <Setter Property="HorizontalContentAlignment" Value="Center" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
-            </Style>
-
-            <Style x:Key="ComposerButtonStyle" TargetType="Button" BasedOn="{StaticResource HeaderIconButtonStyle}">
-                <Setter Property="Width" Value="44" />
-                <Setter Property="Height" Value="44" />
-                <Setter Property="MinWidth" Value="44" />
-                <Setter Property="MinHeight" Value="44" />
-                <Setter Property="CornerRadius" Value="22" />
-                <Setter Property="Background" Value="{StaticResource BrushBubbleIn}" />
-            </Style>
-
-            <Style x:Key="SendButtonStyle" TargetType="Button" BasedOn="{StaticResource ComposerButtonStyle}">
-                <Setter Property="Background" Value="{StaticResource BrushAccent}" />
+                <Setter Property="Background">
+                    <Setter.Value>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Color="{StaticResource ColorBubbleOutStart}" Offset="0" />
+                            <GradientStop Color="{StaticResource ColorBubbleOutEnd}" Offset="1" />
+                        </LinearGradientBrush>
+                    </Setter.Value>
+                </Setter>
                 <Setter Property="Foreground" Value="White" />
             </Style>
 
             <Style x:Key="CompactIconButtonStyle" TargetType="Button" BasedOn="{StaticResource HeaderIconButtonStyle}">
-                <Setter Property="Width" Value="32" />
-                <Setter Property="Height" Value="32" />
-                <Setter Property="MinWidth" Value="32" />
-                <Setter Property="MinHeight" Value="32" />
+                <Setter Property="Width" Value="30" />
+                <Setter Property="Height" Value="30" />
+                <Setter Property="MinWidth" Value="30" />
+                <Setter Property="MinHeight" Value="30" />
                 <Setter Property="CornerRadius" Value="8" />
-                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontSize" Value="13" />
             </Style>
 
-            <Style x:Key="FilterChipStyle" TargetType="ToggleButton">
-                <Setter Property="Height" Value="32" />
-                <Setter Property="MinWidth" Value="52" />
-                <Setter Property="Padding" Value="14,0" />
-                <Setter Property="Background" Value="{StaticResource BrushBubbleIn}" />
-                <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}" />
+            <!-- 파일 카드 액션 버튼 (더 넉넉한 터치 영역) -->
+            <Style x:Key="FileActionButtonStyle" TargetType="Button">
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="MinWidth" Value="36" />
+                <Setter Property="MinHeight" Value="36" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
-                <Setter Property="CornerRadius" Value="16" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Foreground" Value="{StaticResource BrushTextMeta}" />
+                <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+            </Style>
+
+            <!-- ═══════════════════════════════════════════════
+                 Filter Chip
+            ═══════════════════════════════════════════════ -->
+            <Style x:Key="FilterChipStyle" TargetType="ToggleButton">
+                <Setter Property="Height" Value="30" />
+                <Setter Property="MinWidth" Value="48" />
+                <Setter Property="Padding" Value="14,0" />
+                <Setter Property="Background" Value="{StaticResource BrushSurface}" />
+                <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}" />
+                <Setter Property="BorderBrush" Value="{StaticResource BrushStroke}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="15" />
                 <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}" />
                 <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}" />
                 <Setter Property="FontWeight" Value="{StaticResource WeightSemiBold}" />
             </Style>
 
-            <!-- Inputs -->
+            <!-- ═══════════════════════════════════════════════
+                 Input Styles
+            ═══════════════════════════════════════════════ -->
             <Style x:Key="RoundedTextBoxStyle" TargetType="TextBox">
-                <Setter Property="MinHeight" Value="42" />
-                <Setter Property="Padding" Value="14,9" />
-                <Setter Property="Background" Value="{StaticResource BrushBubbleIn}" />
+                <Setter Property="MinHeight" Value="44" />
+                <Setter Property="Padding" Value="14,10" />
+                <Setter Property="Background" Value="{StaticResource BrushSurface}" />
                 <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}" />
                 <Setter Property="PlaceholderForeground" Value="{StaticResource BrushTextMeta}" />
-                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="{StaticResource BrushStroke}" />
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="CornerRadius" Value="{StaticResource RadiusInput}" />
                 <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}" />
@@ -137,9 +239,14 @@
             <Style x:Key="SearchTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource RoundedTextBoxStyle}">
                 <Setter Property="CornerRadius" Value="10" />
                 <Setter Property="Padding" Value="38,9,14,9" />
+                <Setter Property="Background" Value="{StaticResource BrushSurface}" />
+                <Setter Property="BorderBrush" Value="{StaticResource BrushStroke}" />
+                <Setter Property="BorderThickness" Value="1" />
             </Style>
 
-            <!-- Lists -->
+            <!-- ═══════════════════════════════════════════════
+                 List Item Styles
+            ═══════════════════════════════════════════════ -->
             <Style x:Key="MessageListViewItemStyle" TargetType="ListViewItem">
                 <Setter Property="MinHeight" Value="0" />
                 <Setter Property="Padding" Value="0" />
@@ -159,9 +266,9 @@
             </Style>
 
             <Style x:Key="VaultListViewItemStyle" TargetType="ListViewItem">
-                <Setter Property="MinHeight" Value="64" />
-                <Setter Property="Padding" Value="8" />
-                <Setter Property="Margin" Value="0,0,0,4" />
+                <Setter Property="MinHeight" Value="60" />
+                <Setter Property="Padding" Value="6" />
+                <Setter Property="Margin" Value="0,0,0,2" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
                 <Setter Property="CornerRadius" Value="10" />

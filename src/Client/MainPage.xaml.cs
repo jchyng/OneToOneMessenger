@@ -1164,6 +1164,47 @@ public sealed partial class MainPage : Page
         }
     }
 
+    // ─────────────────────────────────────────────────────────
+    //  채팅 배경 원 패턴 (텔레그램 스타일)
+    // ─────────────────────────────────────────────────────────
+
+    private void PatternCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        DrawCirclePattern((Canvas)sender, e.NewSize.Width, e.NewSize.Height);
+    }
+
+    private static void DrawCirclePattern(Canvas canvas, double width, double height)
+    {
+        canvas.Children.Clear();
+
+        const double spacing = 42;   // 원 간격 (px)
+        const double radius  = 4.5;  // 원 반지름 (px)
+        const byte   alpha   = 38;   // 투명도 (0~255)
+
+        // 텔레그램 기본 채팅 캔버스 (#DAE7F3) 위에 더 짙은 파란빛 원
+        var fill = new SolidColorBrush(
+            Microsoft.UI.ColorHelper.FromArgb(alpha, 0x72, 0x9A, 0xBD));
+
+        // 오프셋 행마다 절반씩 이동해서 벌집 패턴 느낌
+        var row = 0;
+        for (double y = radius; y < height + spacing; y += spacing, row++)
+        {
+            var offsetX = (row % 2 == 0) ? 0 : spacing / 2.0;
+            for (double x = offsetX + radius; x < width + spacing; x += spacing)
+            {
+                var ellipse = new Ellipse
+                {
+                    Width  = radius * 2,
+                    Height = radius * 2,
+                    Fill   = fill
+                };
+                Canvas.SetLeft(ellipse, x - radius);
+                Canvas.SetTop(ellipse,  y - radius);
+                canvas.Children.Add(ellipse);
+            }
+        }
+    }
+
     private void MainPage_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         var compact = e.NewSize.Width < CompactLayoutThreshold;
@@ -1604,6 +1645,15 @@ public sealed class ChatMessageItem
         GroupMargin = groupMargin;
         AvatarPath = avatarPath;
         PartnerInitial = partnerInitial;
+
+        // 꼬리는 그룹의 마지막 메시지(ShowAvatar=true)에만 표시
+        ShowTailIncoming = !isMine && showAvatar;
+        ShowTailOutgoing = isMine && showAvatar;
+
+        // 파일 전용 메시지: Body가 없고 이미지 아닌 파일 첨부 → 버블 없이 카드만 표시
+        IsFileOnly = message.File is not null
+                  && string.IsNullOrWhiteSpace(message.Body)
+                  && !string.Equals(message.File.Category, "image", StringComparison.OrdinalIgnoreCase);
     }
 
     public MessageDto Message { get; }
@@ -1615,4 +1665,9 @@ public sealed class ChatMessageItem
     public Thickness GroupMargin { get; }
     public string? AvatarPath { get; }
     public string PartnerInitial { get; }
+    public bool ShowTailIncoming { get; }
+    public bool ShowTailOutgoing { get; }
+    public bool IsFileOnly { get; }
+    /// <summary>버블 표시 여부 (파일 전용이 아닐 때만 true)</summary>
+    public bool ShowBubble => !IsFileOnly;
 }

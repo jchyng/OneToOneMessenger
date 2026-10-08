@@ -4,6 +4,7 @@ using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Storage;
 using Windows.Storage.FileProperties;
@@ -49,8 +50,44 @@ public sealed class ChatBubbleCornerRadiusConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) =>
         value is true
-            ? new CornerRadius(16, 16, 6, 16)
-            : new CornerRadius(16, 16, 16, 6);
+            // 발신: 우측 하단은 꼬리 Path가 채우므로 작은 반경
+            ? new CornerRadius(18, 18, 4, 18)
+            // 수신: 좌측 하단은 꼬리 Path가 채우므로 작은 반경
+            : new CornerRadius(18, 18, 18, 4);
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>발신(true) → White / 수신(false) → #2C3E55</summary>
+public sealed class BubbleTextForegroundConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is true
+            ? new SolidColorBrush(Microsoft.UI.Colors.White)
+            : new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x2C, 0x3E, 0x55));
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>발신 꼬리 색 브러시 반환 (발신=그러데이션 끝색, 수신=흰색)</summary>
+public sealed class BubbleTailBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is true
+            ? (object)new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x3D, 0x7E, 0xFF))
+            : new SolidColorBrush(Microsoft.UI.Colors.White);
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>수신 버블에만 1px 테두리 적용 (발신=0)</summary>
+public sealed class BubbleBorderThicknessConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is true ? new Thickness(0) : new Thickness(1);
 
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
@@ -111,6 +148,46 @@ public sealed class FileCategoryGlyphConverter : IValueConverter
                 _ => "\uE7C3"
             }
             : "\uE7C3";
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>
+/// 파일 유형별 아이콘 배경 브러시 반환.
+/// parameter="fg" 로 호출하면 전경(아이콘) 색 반환.
+/// </summary>
+public sealed class FileCategoryIconBrushConverter : IValueConverter
+{
+    // (배경색, 전경색) 쌍
+    private static readonly Dictionary<string, (string Bg, string Fg)> Palette = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["image"] = ("#E3F1FF", "#288AD6"),
+        ["video"] = ("#FCEEF4", "#C94D7C"),
+        ["doc"]   = ("#EEEEFF", "#5B56D8"),
+        ["etc"]   = ("#F0F2F5", "#697386"),
+    };
+
+    private static SolidColorBrush FromHex(string hex)
+    {
+        hex = hex.TrimStart('#');
+        var a = hex.Length == 8 ? System.Convert.ToByte(hex[..2], 16) : (byte)0xFF;
+        var offset = hex.Length == 8 ? 2 : 0;
+        var r = System.Convert.ToByte(hex.Substring(offset, 2), 16);
+        var g = System.Convert.ToByte(hex.Substring(offset + 2, 2), 16);
+        var b = System.Convert.ToByte(hex.Substring(offset + 4, 2), 16);
+        return new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(a, r, g, b));
+    }
+
+    public object Convert(object value, Type targetType, object parameter, string language)
+    {
+        var key = (value as string ?? "etc").ToLowerInvariant();
+        if (!Palette.TryGetValue(key, out var pair))
+            pair = Palette["etc"];
+
+        var isFg = parameter is string p && p.Equals("fg", StringComparison.OrdinalIgnoreCase);
+        return FromHex(isFg ? pair.Fg : pair.Bg);
+    }
 
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
