@@ -9,12 +9,14 @@ namespace OneToOneMessenger_Client.Services;
 public sealed class ChatApiService
 {
     private readonly HttpClient _httpClient;
+    public Uri BaseAddress => _httpClient.BaseAddress!;
 
-    public ChatApiService(string baseAddress = "http://localhost:5000")
+    public ChatApiService(string? baseAddress = null)
     {
         _httpClient = new HttpClient
         {
-            BaseAddress = new Uri(baseAddress, UriKind.Absolute)
+            BaseAddress = new Uri(baseAddress ?? ServerEndpoint.Url, UriKind.Absolute),
+            Timeout = Timeout.InfiniteTimeSpan
         };
     }
 
@@ -83,6 +85,7 @@ public sealed class ChatApiService
     public async Task<MessageDto> UploadFileAsync(
         StorageFile file,
         string sender,
+        Guid clientMessageId,
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
@@ -91,7 +94,7 @@ public sealed class ChatApiService
         content.Headers.ContentType = new MediaTypeHeaderValue(
             string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType);
 
-        var uri = $"api/files/upload?name={Uri.EscapeDataString(file.Name)}&sender={Uri.EscapeDataString(sender)}";
+        var uri = $"api/files/upload?name={Uri.EscapeDataString(file.Name)}&sender={Uri.EscapeDataString(sender)}&clientMessageId={clientMessageId}";
         using var response = await _httpClient.PostAsync(uri, content, cancellationToken);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<MessageDto>(cancellationToken: cancellationToken))!;
@@ -108,21 +111,44 @@ public sealed class ChatApiService
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken);
         response.EnsureSuccessStatusCode();
-        await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
-        await using var output = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024, true);
-
-        var total = response.Content.Headers.ContentLength;
-        var buffer = new byte[64 * 1024];
-        long copied = 0;
-        int read;
-        while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0)
+        var temporaryPath = destinationPath + "." + Guid.NewGuid().ToString("N") + ".partial";
+        try
         {
-            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-            copied += read;
-            if (total is > 0)
             {
-                progress?.Report((double)copied / total.Value);
+                await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
+                await using var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024, true);
+
+                var total = response.Content.Headers.ContentLength;
+                var buffer = new byte[64 * 1024];
+                long copied = 0;
+                int read;
+                while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0)
+                {
+                    await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                    copied += read;
+                    if (total is > 0)
+                    {
+                        progress?.Report((double)copied / total.Value);
+                    }
+                }
+
+                if (total.HasValue && copied != total.Value)
+                {
+                    throw new InvalidDataException("The downloaded file length does not match the response.");
+                }
+
+                await output.FlushAsync(cancellationToken);
             }
+            File.Move(temporaryPath, destinationPath, overwrite: false);
+        }
+        catch
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
+
+            throw;
         }
     }
 

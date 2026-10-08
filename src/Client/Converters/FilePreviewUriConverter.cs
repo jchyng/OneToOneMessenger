@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml.Data;
+using OneToOneMessenger_Client.Services;
 
 namespace OneToOneMessenger_Client.Converters;
 
@@ -7,7 +8,7 @@ public sealed class FilePreviewUriConverter : IValueConverter
     public object Convert(object value, Type targetType, object parameter, string language)
     {
         return value is Guid id
-            ? new Uri($"http://localhost:5000/api/files/{id}/download")
+            ? new Uri(new Uri(ServerEndpoint.Url), $"api/files/{id}/download")
             : null!;
     }
 

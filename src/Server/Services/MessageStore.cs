@@ -121,16 +121,20 @@ public sealed class MessageStore
         await using var command = connection.CreateCommand();
         command.CommandText = beforeSeq.HasValue
             ? """
-              SELECT seq, id, type, sender, body, sent_at, read_at
-              FROM messages
-              WHERE seq < $beforeSeq
-              ORDER BY seq DESC
+               SELECT m.seq, m.id, m.type, m.sender, m.body, m.sent_at, m.read_at,
+                      f.id, f.original_name, f.mime_type, f.size_bytes, f.category, f.created_at
+               FROM messages AS m
+               LEFT JOIN files AS f ON f.id = m.file_id
+               WHERE m.seq < $beforeSeq
+               ORDER BY m.seq DESC
               LIMIT $limit;
               """
             : """
-              SELECT seq, id, type, sender, body, sent_at, read_at
-              FROM messages
-              ORDER BY seq DESC
+               SELECT m.seq, m.id, m.type, m.sender, m.body, m.sent_at, m.read_at,
+                      f.id, f.original_name, f.mime_type, f.size_bytes, f.category, f.created_at
+               FROM messages AS m
+               LEFT JOIN files AS f ON f.id = m.file_id
+               ORDER BY m.seq DESC
               LIMIT $limit;
               """;
         command.Parameters.AddWithValue("$limit", limit);
@@ -156,7 +160,15 @@ public sealed class MessageStore
                 type,
                 reader.GetString(3),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
-                null,
+                reader.IsDBNull(7)
+                    ? null
+                    : new FileDto(
+                        Guid.Parse(reader.GetString(7)),
+                        reader.GetString(8),
+                        reader.IsDBNull(9) ? "application/octet-stream" : reader.GetString(9),
+                        reader.GetInt64(10),
+                        reader.GetString(11),
+                        DateTimeOffset.Parse(reader.GetString(12))),
                 sentAt,
                 readAt.HasValue,
                 readAt));
@@ -164,6 +176,52 @@ public sealed class MessageStore
 
         messages.Reverse();
         return messages;
+    }
+
+    public async Task<MessageDto?> GetMessageAsync(
+        Guid messageId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT m.seq, m.id, m.type, m.sender, m.body, m.sent_at, m.read_at,
+                   f.id, f.original_name, f.mime_type, f.size_bytes, f.category, f.created_at
+            FROM messages AS m
+            LEFT JOIN files AS f ON f.id = m.file_id
+            WHERE m.id = $messageId;
+            """;
+        command.Parameters.AddWithValue("$messageId", messageId.ToString());
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var readAt = reader.IsDBNull(6)
+            ? (DateTimeOffset?)null
+            : DateTimeOffset.Parse(reader.GetString(6));
+        return new MessageDto(
+            reader.GetInt64(0),
+            Guid.Parse(reader.GetString(1)),
+            (MsgType)reader.GetInt32(2),
+            reader.GetString(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            reader.IsDBNull(7)
+                ? null
+                : new FileDto(
+                    Guid.Parse(reader.GetString(7)),
+                    reader.GetString(8),
+                    reader.IsDBNull(9) ? "application/octet-stream" : reader.GetString(9),
+                    reader.GetInt64(10),
+                    reader.GetString(11),
+                    DateTimeOffset.Parse(reader.GetString(12))),
+            DateTimeOffset.Parse(reader.GetString(5)),
+            readAt.HasValue,
+            readAt);
     }
 
     public async Task<IReadOnlyList<long>> MarkReadAsync(
@@ -221,9 +279,11 @@ public sealed class MessageStore
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT m.seq, m.id, m.type, m.sender, m.body, m.sent_at, m.read_at,
-                   snippet(messages_fts, 1, '<mark>', '</mark>', '…', 24)
+                   snippet(messages_fts, 1, '<mark>', '</mark>', '…', 24),
+                   f.id, f.original_name, f.mime_type, f.size_bytes, f.category, f.created_at
             FROM messages_fts
             INNER JOIN messages AS m ON m.id = messages_fts.id
+            LEFT JOIN files AS f ON f.id = m.file_id
             WHERE messages_fts MATCH $query
             ORDER BY m.seq DESC
             LIMIT $limit;
@@ -244,7 +304,15 @@ public sealed class MessageStore
                 (MsgType)reader.GetInt32(2),
                 reader.GetString(3),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
-                null,
+                reader.IsDBNull(8)
+                    ? null
+                    : new FileDto(
+                        Guid.Parse(reader.GetString(8)),
+                        reader.GetString(9),
+                        reader.IsDBNull(10) ? "application/octet-stream" : reader.GetString(10),
+                        reader.GetInt64(11),
+                        reader.GetString(12),
+                        DateTimeOffset.Parse(reader.GetString(13))),
                 DateTimeOffset.Parse(reader.GetString(5)),
                 readAt.HasValue,
                 readAt);

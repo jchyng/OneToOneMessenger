@@ -7,9 +7,9 @@ public sealed class ChatHubService : IAsyncDisposable
 {
     private readonly HubConnection _connection;
 
-    public ChatHubService(string userName, string baseAddress = "http://localhost:5000")
+    public ChatHubService(string userName, string? baseAddress = null)
     {
-        var hubUri = $"{baseAddress.TrimEnd('/')}/hub/chat?user={Uri.EscapeDataString(userName)}";
+        var hubUri = $"{(baseAddress ?? ServerEndpoint.Url).TrimEnd('/')}/hub/chat?user={Uri.EscapeDataString(userName)}";
         _connection = new HubConnectionBuilder()
             .WithUrl(hubUri)
             .WithAutomaticReconnect(new[] { TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30) })

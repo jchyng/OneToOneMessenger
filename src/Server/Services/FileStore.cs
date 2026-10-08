@@ -4,6 +4,8 @@ namespace MessengerServer.Services;
 
 public sealed class FileStore
 {
+    public const long MaximumFileSizeBytes = 512L * 1024 * 1024;
+    private const int MaximumFileNameLength = 180;
     private readonly string _rootPath;
     private readonly FileExtensionContentTypeProvider _contentTypes = new();
 
@@ -27,6 +29,15 @@ public sealed class FileStore
         {
             throw new ArgumentException("A valid file name is required.", nameof(originalName));
         }
+        if (safeName.Length > MaximumFileNameLength ||
+            safeName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new ArgumentException("The file name is invalid or too long.", nameof(originalName));
+        }
+        if (expectedLength is > MaximumFileSizeBytes)
+        {
+            throw new InvalidDataException($"Files cannot exceed {MaximumFileSizeBytes} bytes.");
+        }
 
         var now = DateTimeOffset.UtcNow;
         var directory = Path.Combine(_rootPath, now.ToString("yyyy"), now.ToString("MM"));
@@ -34,36 +45,64 @@ public sealed class FileStore
 
         var storedName = $"{fileId:N}_{safeName}";
         var fullPath = Path.Combine(directory, storedName);
-        await using var output = new FileStream(
-            fullPath,
-            FileMode.CreateNew,
-            FileAccess.Write,
-            FileShare.None,
-            bufferSize: 64 * 1024,
-            useAsync: true);
+        var temporaryPath = Path.Combine(directory, $"{fileId:N}.uploading");
 
-        await content.CopyToAsync(output, cancellationToken);
-        await output.FlushAsync(cancellationToken);
-
-        var size = output.Length;
-        if (expectedLength.HasValue && expectedLength.Value != size)
+        try
         {
-            File.Delete(fullPath);
-            throw new InvalidDataException("Uploaded content length does not match Content-Length.");
+            long size = 0;
+            {
+                await using var output = new FileStream(
+                    temporaryPath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    bufferSize: 64 * 1024,
+                    useAsync: true);
+
+                var buffer = new byte[64 * 1024];
+                int read;
+                while ((read = await content.ReadAsync(buffer, cancellationToken)) > 0)
+                {
+                    size += read;
+                    if (size > MaximumFileSizeBytes)
+                    {
+                        throw new InvalidDataException($"Files cannot exceed {MaximumFileSizeBytes} bytes.");
+                    }
+
+                    await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                }
+                await output.FlushAsync(cancellationToken);
+
+                if (expectedLength.HasValue && expectedLength.Value != size)
+                {
+                    throw new InvalidDataException("Uploaded content length does not match Content-Length.");
+                }
+            }
+
+            File.Move(temporaryPath, fullPath);
+
+            var mimeType = _contentTypes.TryGetContentType(safeName, out var detectedType)
+                ? detectedType
+                : "application/octet-stream";
+
+            return new StoredFile(
+                fileId,
+                safeName,
+                mimeType,
+                size,
+                Path.GetRelativePath(_rootPath, fullPath),
+                fullPath,
+                now);
         }
+        catch
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
 
-        var mimeType = _contentTypes.TryGetContentType(safeName, out var detectedType)
-            ? detectedType
-            : "application/octet-stream";
-
-        return new StoredFile(
-            fileId,
-            safeName,
-            mimeType,
-            size,
-            Path.GetRelativePath(_rootPath, fullPath),
-            fullPath,
-            now);
+            throw;
+        }
     }
 
     public FileStream OpenRead(string storedPath)

@@ -33,6 +33,8 @@ public sealed partial class MainPage : Page
     private readonly ObservableCollection<VaultFileDto> _vaultFiles = new();
     private readonly ObservableCollection<SearchResultDto> _searchResults = new();
     private readonly List<StorageFile> _failedFiles = new();
+    private readonly Dictionary<string, Guid> _uploadMessageIds = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _activeUploadCancellation;
 
     private CancellationTokenSource? _vaultSearchDebounce;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _statusTimer;
@@ -1228,19 +1230,33 @@ public sealed partial class MainPage : Page
     {
         ShowTransfer($"{file.Name} 전송 중…", showProgress: true);
         UploadProgress.Value = 0;
+        using var cancellation = new CancellationTokenSource();
+        _activeUploadCancellation = cancellation;
         try
         {
+            if (!_uploadMessageIds.TryGetValue(file.Path, out var clientMessageId))
+            {
+                clientMessageId = Guid.NewGuid();
+                _uploadMessageIds[file.Path] = clientMessageId;
+            }
             var progress = new Progress<double>(value =>
             {
                 UploadProgress.Value = value * 100;
                 TransferStatusText.Text = $"{file.Name} 전송 중 · {value:P0}";
             });
-            var message = await _apiService.UploadFileAsync(file, UserName, progress);
+            var message = await _apiService.UploadFileAsync(file, UserName, clientMessageId, progress, cancellation.Token);
             AddOrReplaceMessage(message);
             ScrollToMessage(message.Seq, highlight: false);
             await RefreshVaultAsync();
             _failedFiles.RemoveAll(item => item.Path == file.Path);
+            _uploadMessageIds.Remove(file.Path);
             ShowStatus($"{file.Name} 파일을 보냈습니다.", InfoBarSeverity.Success);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            _uploadMessageIds.Remove(file.Path);
+            TransferStatusText.Text = $"{file.Name} 전송 취소됨";
+            ShowStatus($"{file.Name} 전송을 취소했습니다.", InfoBarSeverity.Informational);
         }
         catch (Exception exception)
         {
@@ -1254,8 +1270,17 @@ public sealed partial class MainPage : Page
         }
         finally
         {
+            if (ReferenceEquals(_activeUploadCancellation, cancellation))
+            {
+                _activeUploadCancellation = null;
+            }
             UpdateTransferFailureState();
         }
+    }
+
+    private void CancelTransferButton_Click(object sender, RoutedEventArgs e)
+    {
+        _activeUploadCancellation?.Cancel();
     }
 
     private async void RetryButton_Click(object sender, RoutedEventArgs e)
@@ -1273,6 +1298,7 @@ public sealed partial class MainPage : Page
         TransferStatusPanel.Visibility = Visibility.Visible;
         UploadProgress.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;
         RetryButton.Visibility = Visibility.Collapsed;
+        CancelTransferButton.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void UpdateTransferFailureState()
@@ -1281,12 +1307,14 @@ public sealed partial class MainPage : Page
         {
             TransferStatusPanel.Visibility = Visibility.Collapsed;
             RetryButton.Visibility = Visibility.Collapsed;
+            CancelTransferButton.Visibility = Visibility.Collapsed;
             return;
         }
 
         TransferStatusPanel.Visibility = Visibility.Visible;
         UploadProgress.Visibility = Visibility.Collapsed;
         RetryButton.Visibility = Visibility.Visible;
+        CancelTransferButton.Visibility = Visibility.Collapsed;
         TransferStatusText.Text = $"전송하지 못한 파일 {_failedFiles.Count}개";
     }
 
@@ -1340,7 +1368,7 @@ public sealed partial class MainPage : Page
         var image = new Image
         {
             Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
-                new Uri($"http://localhost:5000/api/files/{fileId}/download")),
+                new Uri(_apiService.BaseAddress, $"api/files/{fileId}/download")),
             MaxWidth = 960,
             MaxHeight = 680,
             Stretch = Stretch.Uniform
@@ -1461,15 +1489,6 @@ public sealed partial class MainPage : Page
         try
         {
             await _apiService.DownloadFileAsync(file.Id, destinationPath, progress);
-        }
-        catch
-        {
-            if (File.Exists(destinationPath))
-            {
-                File.Delete(destinationPath);
-            }
-
-            throw;
         }
         finally
         {

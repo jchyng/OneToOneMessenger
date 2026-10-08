@@ -5,7 +5,7 @@ using MessengerServer.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.WebHost.UseUrls("http://localhost:5000");
+builder.WebHost.UseUrls(builder.Configuration["Server:Urls"] ?? "http://localhost:5000");
 builder.Services.AddSingleton<DatabaseInitializer>();
 builder.Services.AddSingleton<FileCategoryService>();
 builder.Services.AddSingleton<FileStore>();
@@ -67,6 +67,7 @@ app.MapPost("/api/files/upload", async (
     string? name,
     string? sender,
     string? body,
+    Guid? clientMessageId,
     FileStore fileStore,
     FileCategoryService categoryService,
     MessageStore messageStore,
@@ -82,10 +83,21 @@ app.MapPost("/api/files/upload", async (
     {
         return Results.BadRequest(new { Error = "A non-empty request body is required." });
     }
+    if (request.ContentLength is > FileStore.MaximumFileSizeBytes)
+    {
+        return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+    }
+
+    var messageId = clientMessageId ?? Guid.NewGuid();
+    var existingMessage = await messageStore.GetMessageAsync(messageId, cancellationToken);
+    if (existingMessage is not null)
+    {
+        return Results.Ok(existingMessage);
+    }
 
     var fileId = Guid.NewGuid();
-    var messageId = Guid.NewGuid();
     StoredFile? storedFile = null;
+    var committed = false;
     try
     {
         storedFile = await fileStore.SaveAsync(
@@ -102,12 +114,34 @@ app.MapPost("/api/files/upload", async (
             category,
             body,
             cancellationToken);
-        await hub.Clients.All.SendAsync("MessageReceived", message, cancellationToken);
+        committed = true;
+
+        // The database commit is the source of truth. A transient hub failure must
+        // not delete a file that was already committed with its message.
+        await hub.Clients.All.SendAsync("MessageReceived", message, CancellationToken.None);
         return Results.Ok(message);
+    }
+    catch (ArgumentException exception)
+    {
+        if (!committed && storedFile is not null)
+        {
+            fileStore.Delete(storedFile.FullPath);
+        }
+
+        return Results.BadRequest(new { Error = exception.Message });
+    }
+    catch (InvalidDataException exception)
+    {
+        if (!committed && storedFile is not null)
+        {
+            fileStore.Delete(storedFile.FullPath);
+        }
+
+        return Results.BadRequest(new { Error = exception.Message });
     }
     catch
     {
-        if (storedFile is not null)
+        if (!committed && storedFile is not null)
         {
             fileStore.Delete(storedFile.FullPath);
         }
@@ -128,8 +162,15 @@ app.MapGet("/api/files/{id:guid}/download", async (
         return Results.NotFound();
     }
 
-    var stream = fileStore.OpenRead(file.StoredPath);
-    return Results.File(stream, file.MimeType, file.OriginalName, enableRangeProcessing: true);
+    try
+    {
+        var stream = fileStore.OpenRead(file.StoredPath);
+        return Results.File(stream, file.MimeType, file.OriginalName, enableRangeProcessing: true);
+    }
+    catch (FileNotFoundException)
+    {
+        return Results.NotFound(new { Error = "The stored file is unavailable." });
+    }
 });
 
 app.MapGet("/api/vault", async (
