@@ -64,7 +64,7 @@ public sealed class ChatHub : Hub
         }
 
         var readAt = DateTimeOffset.UtcNow;
-        var updated = await _messageStore.MarkReadAsync(seqList, readAt, Context.ConnectionAborted);
+        var updated = await _messageStore.MarkReadAsync(reader, seqList, readAt, Context.ConnectionAborted);
         if (updated.Count > 0)
         {
             await Clients.All.SendAsync("MessagesRead", reader, updated, readAt, Context.ConnectionAborted);

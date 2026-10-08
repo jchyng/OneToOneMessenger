@@ -6,7 +6,7 @@ public sealed class ReadStateConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language)
     {
-        return value is true ? "✓✓" : "✓";
+        return value is true ? "✓" : string.Empty;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>

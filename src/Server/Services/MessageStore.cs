@@ -225,10 +225,12 @@ public sealed class MessageStore
     }
 
     public async Task<IReadOnlyList<long>> MarkReadAsync(
+        string reader,
         IEnumerable<long> seqList,
         DateTimeOffset readAt,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reader);
         var sequences = seqList.Distinct().Where(seq => seq > 0).ToArray();
         if (sequences.Length == 0)
         {
@@ -247,10 +249,13 @@ public sealed class MessageStore
             command.CommandText = """
                 UPDATE messages
                 SET read_at = $readAt
-                WHERE seq = $seq AND read_at IS NULL
+                WHERE seq = $seq
+                  AND sender <> $reader
+                  AND read_at IS NULL
                 """;
             command.Parameters.AddWithValue("$readAt", readAt.ToUniversalTime().ToString("O"));
             command.Parameters.AddWithValue("$seq", seq);
+            command.Parameters.AddWithValue("$reader", reader);
 
             if (await command.ExecuteNonQueryAsync(cancellationToken) > 0)
             {

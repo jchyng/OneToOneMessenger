@@ -106,6 +106,31 @@ public sealed class FileMessagePersistenceTests
         }
     }
 
+    [Fact]
+    public async Task MarkReadAsync_OnlyMarksMessagesSentByTheOtherUser()
+    {
+        var contentRoot = Path.Combine(Path.GetTempPath(), "OneToOneMessengerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(contentRoot);
+        try
+        {
+            var database = new DatabaseInitializer(new TestHostEnvironment(contentRoot));
+            database.Initialize();
+            var store = new MessageStore(database);
+            await store.AddTextMessageAsync(Guid.NewGuid(), "철수", "읽음 확인", DateTimeOffset.UtcNow);
+            var sequence = Assert.Single(await store.GetRecentAsync()).Seq;
+
+            Assert.Empty(await store.MarkReadAsync("철수", [sequence], DateTimeOffset.UtcNow));
+            Assert.Equal([sequence], await store.MarkReadAsync("짱구", [sequence], DateTimeOffset.UtcNow));
+
+            var message = Assert.Single(await store.GetRecentAsync());
+            Assert.True(message.IsRead);
+        }
+        finally
+        {
+            Directory.Delete(contentRoot, recursive: true);
+        }
+    }
+
     private sealed class TestHostEnvironment(string contentRoot) : IHostEnvironment
     {
         public string EnvironmentName { get; set; } = "Testing";

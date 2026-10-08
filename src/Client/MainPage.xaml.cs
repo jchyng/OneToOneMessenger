@@ -494,12 +494,15 @@ public sealed partial class MainPage : Page
             {
                 for (var index = 0; index < _messages.Count; index++)
                 {
-                    if (_messages[index].Seq != sequence)
+                    var message = _messages[index];
+                    if (message.Seq != sequence ||
+                        message.Sender != UserName ||
+                        string.Equals(reader, UserName, StringComparison.Ordinal))
                     {
                         continue;
                     }
 
-                    _messages[index] = _messages[index] with { IsRead = true, ReadAt = readAt };
+                    _messages[index] = message with { IsRead = true, ReadAt = readAt };
                     changed = true;
                     break;
                 }
