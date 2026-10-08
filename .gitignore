@@ -1,0 +1,10 @@
+# .NET build output
+**/[Bb]in/
+**/[Oo]bj/
+**/[Tt]est[Rr]esult*/
+**/.vs/
+
+# Local server database and uploaded files
+/src/Server/Data/*.db
+/src/Server/Data/*.db-*
+/src/Server/Data/files/
