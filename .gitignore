@@ -8,3 +8,4 @@
 /src/Server/Data/*.db
 /src/Server/Data/*.db-*
 /src/Server/Data/files/
+/data/messenger.db
