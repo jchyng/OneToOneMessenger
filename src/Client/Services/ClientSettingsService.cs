@@ -7,6 +7,8 @@ public sealed class ClientSettingsService
 {
     private const string NotificationsKey = "notificationsEnabled";
     private const string DownloadFolderKey = "downloadFolder";
+    private const string AvatarPathKey = "avatarPath";
+    private const string UserNameKey = "userName";
     private readonly ApplicationDataContainer? _settings;
     private readonly string? _settingsFilePath;
     private SettingsState _fileSettings = new();
@@ -51,6 +53,74 @@ public sealed class ClientSettingsService
             }
 
             _fileSettings.NotificationsEnabled = value;
+            SaveFileSettings();
+        }
+    }
+
+    public string? UserName
+    {
+        get
+        {
+            if (_settings is not null)
+            {
+                return _settings.Values.TryGetValue(UserNameKey, out var value) && value is string name
+                    ? name
+                    : null;
+            }
+
+            return _fileSettings.UserName;
+        }
+        set
+        {
+            if (_settings is not null)
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    _settings.Values.Remove(UserNameKey);
+                }
+                else
+                {
+                    _settings.Values[UserNameKey] = value;
+                }
+                return;
+            }
+
+            _fileSettings.UserName = value;
+            SaveFileSettings();
+        }
+    }
+
+    public string? AvatarPath
+    {
+        get
+        {
+            if (_settings is not null)
+            {
+                return _settings.Values.TryGetValue(AvatarPathKey, out var value) &&
+                       value is string path &&
+                       !string.IsNullOrWhiteSpace(path)
+                    ? path
+                    : null;
+            }
+
+            return _fileSettings.AvatarPath;
+        }
+        set
+        {
+            if (_settings is not null)
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    _settings.Values.Remove(AvatarPathKey);
+                }
+                else
+                {
+                    _settings.Values[AvatarPathKey] = value;
+                }
+                return;
+            }
+
+            _fileSettings.AvatarPath = value;
             SaveFileSettings();
         }
     }
@@ -122,5 +192,7 @@ public sealed class ClientSettingsService
     {
         public bool NotificationsEnabled { get; set; } = true;
         public string? DownloadFolder { get; set; }
+        public string? AvatarPath { get; set; }
+        public string? UserName { get; set; }
     }
 }

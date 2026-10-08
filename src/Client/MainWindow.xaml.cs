@@ -80,10 +80,21 @@ public sealed partial class MainWindow : Window
         ShowFromTray();
     }
 
-    private void TrayExit_Click(object sender, RoutedEventArgs e)
+    private async void TrayExit_Click(object sender, RoutedEventArgs e)
     {
         _allowClose = true;
         TrayIcon.Dispose();
-        Close();
+        try
+        {
+            if (RootFrame.Content is MainPage page)
+            {
+                await page.ShutdownAsync();
+            }
+        }
+        finally
+        {
+            Close();
+            Application.Current.Exit();
+        }
     }
 }

@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 using OneToOneMessenger_Client.Services;
 using Shared;
 using Windows.Storage;
@@ -19,12 +20,13 @@ namespace OneToOneMessenger_Client;
 
 public sealed partial class MainPage : Page
 {
-    private const string UserName = "철수";
     private const double CompactLayoutThreshold = 980;
 
     private readonly ChatApiService _apiService = new();
-    private readonly ChatHubService _hubService = new(UserName);
     private readonly ClientSettingsService _settingsService = new();
+    private ChatHubService _hubService = null!;
+    private string UserName => _settingsService.UserName ?? "철수";
+    private string PartnerName => UserName == "철수" ? "짱구" : "철수";
     private readonly NotificationService _notificationService = new();
     private readonly ObservableCollection<MessageDto> _messages = new();
     private readonly ObservableCollection<ChatMessageItem> _timeline = new();
@@ -37,6 +39,7 @@ public sealed partial class MainPage : Page
     private string? _vaultCategory;
     private string _vaultSort = "newest";
     private bool _pageLoaded;
+    private bool _hubShutdown;
     private bool _isCompactLayout;
     private bool _wideVaultPreference = true;
     private bool _isImeComposing;
@@ -51,6 +54,46 @@ public sealed partial class MainPage : Page
         Unloaded += MainPage_Unloaded;
     }
 
+    private async Task<bool> EnsureUserSelectedAsync()
+    {
+        if (_settingsService.UserName is "철수" or "짱구")
+        {
+            return true;
+        }
+
+        var selection = new ComboBox
+        {
+            PlaceholderText = "이름 선택",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Items = { "철수", "짱구" }
+        };
+        var content = new StackPanel { Spacing = 12, MinWidth = 320 };
+        content.Children.Add(new TextBlock { Text = "이 기기에서 사용할 이름을 선택하세요." });
+        content.Children.Add(selection);
+
+        var dialog = new ContentDialog
+        {
+            Title = "처음 설정",
+            Content = content,
+            PrimaryButtonText = "시작",
+            XamlRoot = XamlRoot,
+            DefaultButton = ContentDialogButton.Primary
+        };
+
+        while (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            if (selection.SelectedItem is string name)
+            {
+                _settingsService.UserName = name;
+                return true;
+            }
+
+            ShowStatus("사용할 이름을 선택해 주세요.", InfoBarSeverity.Warning);
+        }
+
+        return false;
+    }
+
     private async void MainPage_Loaded(object sender, RoutedEventArgs e)
     {
         if (_pageLoaded)
@@ -59,10 +102,20 @@ public sealed partial class MainPage : Page
         }
 
         _pageLoaded = true;
+        if (!await EnsureUserSelectedAsync())
+        {
+            _pageLoaded = false;
+            return;
+        }
+
+        _hubService = new ChatHubService(UserName);
         _hubService.MessageReceived += OnMessageReceived;
         _hubService.PeerPresenceChanged += OnPresenceChanged;
         _hubService.MessagesRead += OnMessagesRead;
         _hubService.ConnectionStateChanged += OnConnectionStateChanged;
+
+        LoadAvatars();
+        UpdateIdentityLabels();
 
         MessagesLoadingState.Visibility = Visibility.Visible;
         try
@@ -127,11 +180,109 @@ public sealed partial class MainPage : Page
         MessageInput.Focus(FocusState.Programmatic);
     }
 
+    private void LoadAvatars()
+    {
+        var partnerAvatarPath = _settingsService.AvatarPath;
+        ApplyPartnerAvatar(partnerAvatarPath);
+    }
+
+    private void UpdateIdentityLabels()
+    {
+        PartnerNameText.Text = PartnerName;
+        PartnerAvatarInitial.Text = PartnerName[..1];
+        EmptyStatePartnerText.Text = $"{PartnerName}에게 첫 메시지나 파일을 보내세요";
+    }
+
+    private async Task SwitchIdentityAsync()
+    {
+        _hubService.MessageReceived -= OnMessageReceived;
+        _hubService.PeerPresenceChanged -= OnPresenceChanged;
+        _hubService.MessagesRead -= OnMessagesRead;
+        _hubService.ConnectionStateChanged -= OnConnectionStateChanged;
+        await _hubService.DisposeAsync();
+
+        UpdateIdentityLabels();
+        _messages.Clear();
+        _timeline.Clear();
+
+        _hubService = new ChatHubService(UserName);
+        _hubService.MessageReceived += OnMessageReceived;
+        _hubService.PeerPresenceChanged += OnPresenceChanged;
+        _hubService.MessagesRead += OnMessagesRead;
+        _hubService.ConnectionStateChanged += OnConnectionStateChanged;
+        await _hubService.StartAsync();
+
+        var messages = await _apiService.GetMessagesAsync();
+        if (messages is not null)
+        {
+            foreach (var message in messages)
+            {
+                AddOrReplaceMessage(message, rebuild: false);
+            }
+        }
+
+        RebuildTimeline();
+        UpdateMessageStates();
+        ScrollToLatestMessage();
+
+        var unreadSequences = _messages
+            .Where(message => message.Sender != UserName && !message.IsRead)
+            .Select(message => message.Seq)
+            .Where(sequence => sequence > 0)
+            .ToArray();
+        if (unreadSequences.Length > 0)
+        {
+            await _hubService.MarkReadAsync(unreadSequences);
+        }
+    }
+
+    private void ApplyPartnerAvatar(string? path)
+    {
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            try
+            {
+                var uri = new Uri(path, UriKind.Absolute);
+                var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(uri);
+                var brush = new ImageBrush { ImageSource = bitmap, Stretch = Stretch.UniformToFill };
+                PartnerAvatarImage.Fill = brush;
+                PartnerAvatarImage.Visibility = Visibility.Visible;
+                PartnerAvatarInitial.Visibility = Visibility.Collapsed;
+                PartnerAvatarEllipse.Fill = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            }
+            catch
+            {
+            }
+        }
+        else
+        {
+            PartnerAvatarImage.Visibility = Visibility.Collapsed;
+            PartnerAvatarInitial.Visibility = Visibility.Visible;
+            PartnerAvatarEllipse.Fill = (Brush)Application.Current.Resources["BrushAccentSoft"];
+        }
+    }
+
     private async void MainPage_Unloaded(object sender, RoutedEventArgs e)
     {
         _pageLoaded = false;
         _vaultSearchDebounce?.Cancel();
         _statusTimer?.Stop();
+        await ShutdownAsync();
+    }
+
+    public async Task ShutdownAsync()
+    {
+        if (_hubShutdown)
+        {
+            return;
+        }
+
+        _hubShutdown = true;
+        if (_hubService is null)
+        {
+            return;
+        }
+
         _hubService.MessageReceived -= OnMessageReceived;
         _hubService.PeerPresenceChanged -= OnPresenceChanged;
         _hubService.MessagesRead -= OnMessagesRead;
@@ -172,6 +323,7 @@ public sealed partial class MainPage : Page
     {
         _timeline.Clear();
         MessageDto? previous = null;
+        var partnerAvatarPath = _settingsService.AvatarPath;
 
         foreach (var message in _messages.OrderBy(item => item.SentAt).ThenBy(item => item.Seq))
         {
@@ -197,7 +349,9 @@ public sealed partial class MainPage : Page
                 FormatDateHeader(localDate),
                 showAvatar: !isMine && !isGrouped,
                 showSender: !isMine && !isGrouped,
-                groupMargin: new Thickness(0, isGrouped ? 2 : 10, 0, 0)));
+                groupMargin: new Thickness(0, isGrouped ? 2 : 10, 0, 0),
+                avatarPath: isMine ? null : partnerAvatarPath,
+                partnerInitial: PartnerName[..1]));
 
             previous = message;
         }
@@ -560,22 +714,95 @@ public sealed partial class MainPage : Page
 
     private async void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
+        // My avatar with picker
+        var myAvatarPath = _settingsService.AvatarPath;
+        var myAvatarImage = new Ellipse
+        {
+            Width = 44,
+            Height = 44,
+            Visibility = Visibility.Collapsed
+        };
+
+        var myAvatarInitial = new TextBlock
+        {
+            Text = UserName[..1],
+            FontSize = 15,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["BrushAccent"],
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var myAvatarEllipse = new Ellipse
+        {
+            Fill = (Brush)Application.Current.Resources["BrushAccentSoft"]
+        };
+
+        if (!string.IsNullOrWhiteSpace(myAvatarPath))
+        {
+            try
+            {
+                var uri = new Uri(myAvatarPath, UriKind.Absolute);
+                var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(uri);
+                myAvatarImage.Fill = new ImageBrush { ImageSource = bitmap, Stretch = Stretch.UniformToFill };
+                myAvatarImage.Visibility = Visibility.Visible;
+                myAvatarInitial.Visibility = Visibility.Collapsed;
+                myAvatarEllipse.Fill = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            }
+            catch { }
+        }
+
         var accountAvatar = new Border
         {
             Width = 44,
             Height = 44,
             CornerRadius = new CornerRadius(22),
-            Background = (Brush)Application.Current.Resources["BrushAccentSoft"],
-            Child = new TextBlock
+            Child = new Grid
             {
-                Text = "철",
-                FontSize = 15,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                Foreground = (Brush)Application.Current.Resources["BrushAccent"],
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
+                Children = { myAvatarEllipse, myAvatarImage, myAvatarInitial }
             }
         };
+
+        var changeAvatarButton = new Button
+        {
+            Content = "&#xE74E;",
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),
+            FontSize = 14,
+            Width = 32,
+            Height = 32,
+            CornerRadius = new CornerRadius(16),
+            Background = (Brush)Application.Current.Resources["BrushBubbleIn"],
+            Foreground = (Brush)Application.Current.Resources["BrushTextPrimary"],
+            VerticalAlignment = VerticalAlignment.Bottom,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 0, -8, -8)
+        };
+        ToolTipService.SetToolTip(changeAvatarButton, "아바타 변경");
+        changeAvatarButton.Click += async (_, _) =>
+        {
+            if (App.CurrentWindow is null) return;
+            var picker = new FileOpenPicker();
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(App.CurrentWindow));
+            picker.FileTypeFilter.Add(".jpg");
+            picker.FileTypeFilter.Add(".jpeg");
+            picker.FileTypeFilter.Add(".png");
+            picker.FileTypeFilter.Add(".bmp");
+            picker.FileTypeFilter.Add(".webp");
+            var file = await picker.PickSingleFileAsync();
+            if (file is not null)
+            {
+                _settingsService.AvatarPath = file.Path;
+                var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(file.Path));
+                myAvatarImage.Fill = new ImageBrush { ImageSource = bitmap, Stretch = Stretch.UniformToFill };
+                myAvatarImage.Visibility = Visibility.Visible;
+                myAvatarInitial.Visibility = Visibility.Collapsed;
+                myAvatarEllipse.Fill = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                ApplyPartnerAvatar(file.Path); // Also update partner avatar for demo
+            }
+        };
+
+        var avatarContainer = new Grid { Children = { accountAvatar, changeAvatarButton } };
+
         var accountText = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
         accountText.Children.Add(new TextBlock
         {
@@ -590,7 +817,7 @@ public sealed partial class MainPage : Page
             Foreground = (Brush)Application.Current.Resources["BrushTextMeta"]
         });
         var accountRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        accountRow.Children.Add(accountAvatar);
+        accountRow.Children.Add(avatarContainer);
         accountRow.Children.Add(accountText);
 
         var notificationsToggle = new ToggleSwitch
@@ -599,6 +826,13 @@ public sealed partial class MainPage : Page
             OnContent = "켜짐",
             OffContent = "꺼짐",
             IsOn = _settingsService.NotificationsEnabled
+        };
+        var userNameSelector = new ComboBox
+        {
+            Header = "이 기기에서 사용할 이름",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Items = { "철수", "짱구" },
+            SelectedItem = UserName
         };
         var downloadFolderTextBox = new TextBox
         {
@@ -637,6 +871,7 @@ public sealed partial class MainPage : Page
             Height = 1,
             Background = (Brush)Application.Current.Resources["BrushStroke"]
         });
+        content.Children.Add(userNameSelector);
         content.Children.Add(notificationsToggle);
         content.Children.Add(downloadFolderTextBox);
         content.Children.Add(chooseFolderButton);
@@ -659,8 +894,22 @@ public sealed partial class MainPage : Page
 
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
         {
+            var identityChanged = userNameSelector.SelectedItem is string selectedName && selectedName != UserName;
             _settingsService.NotificationsEnabled = notificationsToggle.IsOn;
             _settingsService.DownloadFolder = downloadFolderTextBox.Text;
+            if (identityChanged && userNameSelector.SelectedItem is string newUserName)
+            {
+                _settingsService.UserName = newUserName;
+                try
+                {
+                    await SwitchIdentityAsync();
+                }
+                catch (Exception exception)
+                {
+                    ShowStatus($"이름은 저장했지만 연결을 전환하지 못했습니다: {exception.Message}", InfoBarSeverity.Error);
+                    return;
+                }
+            }
             ShowStatus("설정을 저장했습니다.", InfoBarSeverity.Success);
         }
     }
@@ -1163,9 +1412,9 @@ public sealed partial class MainPage : Page
         {
             var picker = new FileSavePicker();
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(App.CurrentWindow));
-            var originalName = Path.GetFileName(file.OriginalName);
-            var extension = Path.GetExtension(originalName);
-            picker.SuggestedFileName = Path.GetFileNameWithoutExtension(originalName);
+            var originalName = System.IO.Path.GetFileName(file.OriginalName);
+            var extension = System.IO.Path.GetExtension(originalName);
+            picker.SuggestedFileName = System.IO.Path.GetFileNameWithoutExtension(originalName);
             picker.FileTypeChoices.Add(
                 string.IsNullOrWhiteSpace(extension) ? "파일" : extension.ToUpperInvariant() + " 파일",
                 [string.IsNullOrWhiteSpace(extension) ? ".bin" : extension]);
@@ -1230,23 +1479,23 @@ public sealed partial class MainPage : Page
 
     private static string GetAvailablePath(string folderPath, string originalName)
     {
-        var safeName = Path.GetFileName(originalName);
+        var safeName = System.IO.Path.GetFileName(originalName);
         if (string.IsNullOrWhiteSpace(safeName))
         {
             safeName = "download";
         }
 
-        var path = Path.Combine(folderPath, safeName);
+        var path = System.IO.Path.Combine(folderPath, safeName);
         if (!File.Exists(path))
         {
             return path;
         }
 
-        var name = Path.GetFileNameWithoutExtension(safeName);
-        var extension = Path.GetExtension(safeName);
+        var name = System.IO.Path.GetFileNameWithoutExtension(safeName);
+        var extension = System.IO.Path.GetExtension(safeName);
         for (var index = 1; ; index++)
         {
-            path = Path.Combine(folderPath, $"{name} ({index}){extension}");
+            path = System.IO.Path.Combine(folderPath, $"{name} ({index}){extension}");
             if (!File.Exists(path))
             {
                 return path;
@@ -1282,7 +1531,9 @@ public sealed class ChatMessageItem
         string dateHeader,
         bool showAvatar,
         bool showSender,
-        Thickness groupMargin)
+        Thickness groupMargin,
+        string? avatarPath = null,
+        string partnerInitial = "짱")
     {
         Message = message;
         IsMine = isMine;
@@ -1291,6 +1542,8 @@ public sealed class ChatMessageItem
         ShowAvatar = showAvatar;
         ShowSender = showSender;
         GroupMargin = groupMargin;
+        AvatarPath = avatarPath;
+        PartnerInitial = partnerInitial;
     }
 
     public MessageDto Message { get; }
@@ -1300,4 +1553,6 @@ public sealed class ChatMessageItem
     public bool ShowAvatar { get; }
     public bool ShowSender { get; }
     public Thickness GroupMargin { get; }
+    public string? AvatarPath { get; }
+    public string PartnerInitial { get; }
 }

@@ -23,11 +23,13 @@
         <converters:FileCategoryVisibilityConverter x:Key="FileCategoryVisibilityConverter" />
         <converters:TextVisibilityConverter x:Key="TextVisibilityConverter" />
         <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <converters:StringNullOrEmptyToVisibilityConverter x:Key="StringNullOrEmptyToVisibilityConverter" />
         <converters:FileSizeConverter x:Key="FileSizeConverter" />
         <converters:FileCategoryLabelConverter x:Key="FileCategoryLabelConverter" />
         <converters:FileCategoryGlyphConverter x:Key="FileCategoryGlyphConverter" />
         <converters:FriendlyDateConverter x:Key="FriendlyDateConverter" />
         <converters:SearchPreviewConverter x:Key="SearchPreviewConverter" />
+        <converters:AvatarImageSourceConverter x:Key="AvatarImageSourceConverter" />
     </Page.Resources>
 
     <Page.KeyboardAccelerators>
@@ -269,8 +271,13 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <Grid Width="44" Height="44" VerticalAlignment="Center">
-                        <Ellipse Fill="{StaticResource BrushAccentSoft}" />
-                        <TextBlock Text="짱" FontSize="15" FontWeight="{StaticResource WeightSemiBold}"
+                        <Ellipse x:Name="PartnerAvatarEllipse" Fill="{StaticResource BrushAccentSoft}" />
+                        <Ellipse x:Name="PartnerAvatarImage" Visibility="Collapsed">
+                            <Ellipse.Fill>
+                                <ImageBrush Stretch="UniformToFill" />
+                            </Ellipse.Fill>
+                        </Ellipse>
+                        <TextBlock x:Name="PartnerAvatarInitial" Text="짱" FontSize="15" FontWeight="{StaticResource WeightSemiBold}"
                                    Foreground="{StaticResource BrushAccent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                         <Border Width="14" Height="14" CornerRadius="7" Padding="3" Background="{StaticResource BrushSurface}"
                                 HorizontalAlignment="Right" VerticalAlignment="Bottom">
@@ -278,7 +285,7 @@
                         </Border>
                     </Grid>
                     <StackPanel Grid.Column="1" Margin="11,0,0,0" VerticalAlignment="Center" Spacing="2">
-                        <TextBlock Text="짱구" FontSize="{StaticResource FontSizeSubtitle}" FontWeight="{StaticResource WeightSemiBold}" Foreground="{StaticResource BrushTextStrong}" />
+                        <TextBlock x:Name="PartnerNameText" Text="짱구" FontSize="{StaticResource FontSizeSubtitle}" FontWeight="{StaticResource WeightSemiBold}" Foreground="{StaticResource BrushTextStrong}" />
                         <StackPanel Orientation="Horizontal" Spacing="4">
                             <TextBlock x:Name="PresenceText" Text="연결 중…" FontSize="{StaticResource FontSizeCaption}" Foreground="{StaticResource BrushTextMeta}" />
                         </StackPanel>
@@ -335,7 +342,7 @@
 
                                     <!-- Message row -->
                                     <Grid MaxWidth="570" Margin="{Binding GroupMargin}"
-                                          HorizontalAlignment="{Binding Message.Sender, Converter={StaticResource ChatMessageAlignmentConverter}}"
+                                          HorizontalAlignment="{Binding IsMine, Converter={StaticResource ChatMessageAlignmentConverter}}"
                                           ColumnSpacing="8">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="32" />
@@ -344,9 +351,15 @@
 
                                         <Grid Width="32" Height="32" VerticalAlignment="Top"
                                               Visibility="{Binding ShowAvatar, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                            <Ellipse Fill="{StaticResource BrushBubbleIn}" />
-                                            <TextBlock Text="짱" FontSize="11" FontWeight="{StaticResource WeightSemiBold}"
-                                                       Foreground="{StaticResource BrushTextPrimary}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <Ellipse x:Name="MessageAvatarEllipse" Fill="{StaticResource BrushBubbleIn}" />
+                                            <Ellipse x:Name="MessageAvatarImage" Visibility="Collapsed">
+                                                <Ellipse.Fill>
+                                                    <ImageBrush ImageSource="{Binding AvatarPath, Converter={StaticResource AvatarImageSourceConverter}}" Stretch="UniformToFill" />
+                                                </Ellipse.Fill>
+                                            </Ellipse>
+                                            <TextBlock Text="{Binding PartnerInitial}" FontSize="11" FontWeight="{StaticResource WeightSemiBold}"
+                                                       Foreground="{StaticResource BrushTextPrimary}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Visibility="{Binding AvatarPath, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}, ConverterParameter=Invert}" />
                                         </Grid>
 
                                         <StackPanel Grid.Column="1" MaxWidth="520" Spacing="4">
@@ -354,8 +367,8 @@
                                                        Visibility="{Binding ShowSender, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                        FontSize="{StaticResource FontSizeMeta}" FontWeight="{StaticResource WeightSemiBold}"
                                                        Foreground="{StaticResource BrushTextMeta}" Margin="2,0,0,1" />
-                                            <Border Background="{Binding Message.Sender, Converter={StaticResource ChatMessageBrushConverter}}"
-                                                    CornerRadius="{Binding Message.Sender, Converter={StaticResource ChatBubbleCornerRadiusConverter}}"
+                                            <Border Background="{Binding IsMine, Converter={StaticResource ChatMessageBrushConverter}}"
+                                                    CornerRadius="{Binding IsMine, Converter={StaticResource ChatBubbleCornerRadiusConverter}}"
                                                     Padding="12,9">
                                                 <StackPanel Spacing="8">
                                                     <TextBlock Text="{Binding Message.Body}"
@@ -414,7 +427,7 @@
                                             </Border>
 
                                             <StackPanel Orientation="Horizontal" Spacing="5"
-                                                        HorizontalAlignment="{Binding Message.Sender, Converter={StaticResource ChatMessageAlignmentConverter}}">
+                                                        HorizontalAlignment="{Binding IsMine, Converter={StaticResource ChatMessageAlignmentConverter}}">
                                                 <TextBlock Text="{Binding Message.SentAt, Converter={StaticResource KoreanTimeConverter}}"
                                                            FontSize="{StaticResource FontSizeMeta}" Foreground="{StaticResource BrushTextMeta}" />
                                                 <TextBlock Text="{Binding Message.IsRead, Converter={StaticResource ReadStateConverter}}"
@@ -435,7 +448,7 @@
                         </Border>
                         <TextBlock Text="대화를 시작해 보세요" HorizontalAlignment="Center" FontSize="{StaticResource FontSizeSubtitle}"
                                    FontWeight="{StaticResource WeightSemiBold}" Foreground="{StaticResource BrushTextStrong}" />
-                        <TextBlock Text="짱구에게 첫 메시지나 파일을 보내세요" HorizontalAlignment="Center"
+                                                <TextBlock x:Name="EmptyStatePartnerText" Text="짱구에게 첫 메시지나 파일을 보내세요" HorizontalAlignment="Center"
                                    FontSize="{StaticResource FontSizeCaption}" Foreground="{StaticResource BrushTextMeta}" />
                     </StackPanel>
 

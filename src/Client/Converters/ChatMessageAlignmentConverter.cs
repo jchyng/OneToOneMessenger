@@ -7,7 +7,7 @@ public sealed class ChatMessageAlignmentConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language)
     {
-        return value is string sender && sender == "철수"
+        return value is true
             ? HorizontalAlignment.Right
             : HorizontalAlignment.Left;
     }

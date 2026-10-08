@@ -1,8 +1,13 @@
 using System.Globalization;
+using System.IO;
 using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.Storage;
+using Windows.Storage.FileProperties;
+using Windows.Storage.Streams;
 
 namespace OneToOneMessenger_Client.Converters;
 
@@ -23,10 +28,27 @@ public sealed class BooleanToVisibilityConverter : IValueConverter
         throw new NotSupportedException();
 }
 
+public sealed class StringNullOrEmptyToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language)
+    {
+        var hasValue = value is string s && !string.IsNullOrWhiteSpace(s);
+        if (parameter is string text && text.Equals("Invert", StringComparison.OrdinalIgnoreCase))
+        {
+            hasValue = !hasValue;
+        }
+
+        return hasValue ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
 public sealed class ChatBubbleCornerRadiusConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) =>
-        value is string sender && sender == "철수"
+        value is true
             ? new CornerRadius(16, 16, 6, 16)
             : new CornerRadius(16, 16, 16, 6);
 
@@ -137,6 +159,27 @@ public sealed partial class SearchPreviewConverter : IValueConverter
         }
 
         return WebUtility.HtmlDecode(MarkTagRegex().Replace(preview, string.Empty));
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+public sealed class AvatarImageSourceConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language)
+    {
+        if (value is not string path || string.IsNullOrWhiteSpace(path))
+        {
+            return DependencyProperty.UnsetValue;
+        }
+
+        if (Uri.TryCreate(path, UriKind.Absolute, out var uri))
+        {
+            return new BitmapImage(uri);
+        }
+
+        return DependencyProperty.UnsetValue;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
